@@ -1,0 +1,484 @@
+---
+title: "3. Single-Parameter Models"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(LearnBayes)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+### 3.1
+Use of `R` in summrarizing the posterior distribution.
+
+### 3.2 Normal distribution with known mean but unknown variance
+**Problem: ** estimate an unknown variace.
+- $d_i$: difefrence of score = winning score - losing score
+
+Suppose $d$ follows a normal distribution with mean 0 and var $\sigma^2$, then the likelihood is:
+$$
+L(\sigma^2) \propto \frac{1}{\sigma^{n/2}}\exp\left\{ -\sum_{i=1}^n\frac{d_i^2}{2\sigma^2} \right\} 
+$$
+
+Also suppose the *noninformative* prior density $p(\sigma^2) \propto 1/\sigma^2$ is assigned to the var. 
+This means that the log of var has a uniform distribution. Here is the proof.
+$$
+\text{Let }X = \sigma^2, Y = \log \sigma^2,\\
+\text{then we have } Y = \log X \Longleftrightarrow X = e^Y.\\
+\text{Also recall that we have }p(X) = p(\sigma^2) \propto \frac{1}{\sigma^2} =  \frac{1}{X}.\\
+\text{Thus } p(Y) = p(\log(\sigma^2)) = |\frac{\partial X}{\partial Y}|p(X) \\
+\propto |\frac{\partial e^Y}{\partial Y}|\cdot 1/X = e^Y\cdot 1/e^Y  = 1. \\
+\text{Thus }p(\log(\sigma^2)) \propto 1
+$$
+**Numerical example**
+Theoretically, $p(\log(\sigma^2))$ have uniform diststribution but it cannot be expressed in the real case since we cannot take the nearest value of 0 and $\infty$, especially very small positive value. (improper prior)
+```{r}
+sig_sq = seq(10^-2,10^2,.01)  # assume that we limit the lower/upper bound as 10^-2 and 10^2
+p = 1/sig_sq  # probabilty over the variance
+plot(log(sig_sq),p,type="l",xlim=c(-2,2))  # plot with the log(\sigma^2) => (looks) uniform
+```
+
+Then the posterior of $\sigma^2$ is given by:
+$$
+g(\sigma^2|\text{data}) \propto (\sigma^2)^{-n/2-1}\exp\{-\frac{v}{2\sigma^2}\}
+$$
+where $v = \sum_{i=1}^n d_i^2$. Defining the *precision parameter* $P = 1/\sigma^2$, then $P \sim U/v$ where $U$ has a chi-squared distribution with $n$ degree of freedom.
+
+$$
+\frac{\sum_{i=1}^n d_i^2}{\sigma^2} = \sum_{i=1}^n (\frac{d_i - 0}{\sigma})^2 = \sum_{i=1}^n Z_i^2 \sim \chi^2(n) \\
+\Longleftrightarrow  \frac{1}{\sigma^2} \sim \frac{U}{v}
+$$
+
+
+Use the data of `footballscores` from `LearnBayes`.
+```{r}
+data("footballscores")
+attach(footballscores)  # serch the path -> read dataframe
+d = favorite - underdog - spread  # define the "difference"
+n = length(d) # number of data
+v = sum(d^2)  # sum of squares
+```
+
+
+First generate 1000 samples from chi-squared($n$) distribution then convert $P$ by $\sigma = \sqrt{1/P}$. `hist` command makes the histogram.
+```{r}
+P = rchisq(1000, n)/v  # generate samples from chi-squared 
+s = sqrt(1/P)  # convert as std-dev
+hist(s, main="")
+```
+
+`quantile` command : to extract a quantile.  Here we see at 2.5%, 50%, and 97.5%.
+```{r}
+quantile(s, probs = c(.025,.5,.975))
+```
+We see that the 95% probability interval for $\sigma$ is (13.1, 14.6) and the median is 13.85.
+
+### 3.3 Esitmating a Heart Transplant Mortality Rate
+**Problem: ** rate of success of heart transplant surgery. 
+
+- $n$: number of surgeries
+- $y$: num of death in 30 days, which follows *Poisson distribution* (https://en.wikipedia.org/wiki/Poisson_distribution) with mean $e\lambda$.
+- knowing probability of death for each individual patient.
+- $e$: size of the exposure. 
+
+We want to esitmate $\lambda$, the mortatily rate per unit exposure! 
+Statndard approach is by the MLE: $\hat \lambda = y/e$ but it can be poor. So we use a Bayesian approach (since we assume that the number of death $y$ is close to zero). 
+
+The prior by gamma($\alpha,\beta$):
+$$
+p(\lambda) \propto \lambda^{\alpha-1} \exp(- \beta \lambda), \lambda > 0
+$$
+
+For the prior, assume that we have the data from other 10 hospitals which are:
+- $z_j$: num of death
+- $o_j$: num of exposure 
+Note that $z_j$ follows Poisson with mean $\lambda o_j$.  
+
+If we assign the standard noninformative prior, $\alpha=\beta=0$, $p(\lambda) \propto \lambda^{-1}$, then the updated version is 
+$$
+p(\lambda) \propto \lambda^{\sum_{j=1}^{10}z_j-1} \exp(- (\sum_{j=1}^{10}o_j) \lambda)
+$$
+We suppose 
+$$
+\sum_{j=1}^{10}z_j = 16, \sum_{j=1}^{10}o_j = 15174
+$$
+so assign gamma(16,15174) as prior.
+
+Then, suppose we observe that $y_o$ death for a given hospital with exposure $e$. Then the posterior will be gamma($\alpha+y_o,\beta+e$). 
+Also the (prior) predictive distribution of $y$, $f(y)$ can be expressed as (assuming that the exposure is $e$)
+$$
+f(y) = \frac{f(y|\lambda)g(\lambda)}{g(\lambda|y)}
+$$
+
+where $f(y|\lambda)$ is the Possion($e\lambda$) sampling density, $g(\lambda)/ g(\lambda|y)$ are the prior/posterior.
+
+One can check whether this model is reasonable or not by comparing the predictive distribution $f(y)$ and the real observation $y_o$. 
+
+**Case 1**
+Hospital A observes 1 death with 66 exposure. The standard estimate of A's mortality rate is 1/66. But with our method, noting that $E[\lambda] = \alpha/\beta$,
+
+```{r}
+alpha = 16; beta = 15174
+yobs = 1; exposure = 66
+y = 0:10 # possible death observation 
+lam = alpha/beta  # prior estimation of lambda = expected value from gamma distribution
+# compute the prior predictive distribution for each y
+fy = dpois(y, exposure*lam) * dgamma(lam, shape = alpha, rate = beta)/ dgamma(lam, shape = alpha + y, rate = beta + exposure)  
+cbind(y,round(fy,3))
+```
+We observe that $y$ highly occures 0 or 1 -> hence it seems reasonable modeling!!
+Then take 1000 samples of $\lambda_A$ with the posterior gamma($\alpha+1,\beta+66$).
+
+```{r}
+lambdaA = rgamma(1000, shape=alpha+yobs, rate = beta+exposure)
+```
+
+**Case 2**
+Hospital B observes 4 deaths with 1767 exposure. The standard estimate of B's mortality rate is 4/1767. We do the same as before,
+
+```{r}
+yobsB = 4; exposureB = 1767
+y = 0:10 # possible death observation 
+lam = alpha/beta  # prior estimation of lambda = expected value from gamma distribution
+# compute the prior predictive distribution for each y
+fyB = dpois(y, exposureB*lam) * dgamma(lam, shape = alpha, rate = beta)/ dgamma(lam, shape = alpha + y, rate = beta + exposureB)  
+cbind(y,round(fyB,3))
+```
+We see that $y_o=4$ is not such a huge extreame case, so it is also reasonable.
+Again, we take the sample of $\lambda$ from the posterior, gamma($\alpha+4,\beta+1767$).
+```{r}
+lambdaB = rgamma(1000, shape=alpha+yobsB, rate = beta+exposureB)
+```
+
+Then we see the prior/posterior relation.
+
+```{r}
+par(mfrow = c(2,1)) # subplot (2 by 1)
+# for hospital A
+plot(density(lambdaA), main = "HOSPITAL A", xlab = "lambdaA", lwd = 3) # posterior for A
+curve(dgamma(x,shape = alpha, rate = beta), add = TRUE)  # prior
+legend("topright",legend = c("prior","posterior"), lwd = c(1,3))
+# for hospital B
+plot(density(lambdaB), main = "HOSPITAL B", xlab = "lambdaB", lwd = 3) # posterior for B
+curve(dgamma(x,shape = alpha, rate = beta), add = TRUE)  # prior
+legend("topright",legend = c("prior","posterior"), lwd = c(1,3))
+```
+
+We observe that the posterior of B changes more than A. (The prior has less influence due to the large number of surgeries.)
+
+### 3.4 An Illustration of Bayesian Robustness
+If we have some idea for prior of a paramter $\theta$, such as "median of $\theta$ is 30" or "80th percentile is 50", then one can design such prior in many ways. However, after observing data and generating a posterior, one want the posteriro to be *robust* to the choice of prior, i.e. the posterior should be insensitive to the choice of priors which match the user's beliefs.
+
+To illustrate the idea, suppose we are interested in finding the IQ for Joe.  We are believing that:
+- Joe has average interigence 
+- Joe's IQ falls in [80,120] w.p. 90%  
+
+#### Normal Distribution
+If we use the Normal distribution as the prior, we can say that:
+
+- 50th percentile is $\theta = 100$ 
+- 95th percentile is $\theta = 120$ (from symmetry of Normal dist)
+
+```{r}
+quantile1 = list(p=.5,x=100); quantile2 = list(p=.95,x=120)
+normal.select(quantile1,quantile2)
+```
+Hence, the prior is $\mathcal{N}(\mu_0,\tau_0)$ with $\mu_0 = 100, \tau_0 = 12.16$. Note the precision is $P_0 = 1/\tau_0^2 = 1/12.16^2$.
+
+Joe did 4 tests, $y_1,...,y_4$. Assume that each individual test's score $y$ follows $\mathcal{N}(\theta,\sigma)$ with *known* $\sigma=15$, thus the precision is $P= 1/15^2$
+Then, the posterior hyperparameters of $\theta$ (precision $P_1$ and mean $\mu_1$) are: (https://en.wikipedia.org/wiki/Conjugate_prior)
+$$
+P_1 = 4 \times P + P_0 = 4/\sigma^2 + 1/\tau_0^2\\
+\text{Hence the std-dev is }\tau_1 = 1/\sqrt{P_1} = \frac{1}{\sqrt{4/\sigma^2 + 1/\tau_0^2}}
+$$
+for the mean is
+$$
+\mu_1 = \frac{P_0\mu_0 + P \times \sum_{i=1}^4y_i}{P_0 + 4P} = \frac{(1/\tau_0^2)\mu_0 + (1/\sigma^2)\times\sum_{i=1}^4y_i}{1/\tau_0^2 + 4/\sigma^2}\\
+= \frac{(1/\tau_0^2)\mu_0 + (4/\sigma^2)\bar y}{1/\tau_0^2 + 4/\sigma^2}
+$$
+where $\bar y = \sum_{i=1}^4y_i / 4$, the sample mean.
+Suppose we observe $\bar y = 110, 125, 140$ then, estimate the posterior distirbution of $\theta$
+
+```{r}
+mu0 = 100; tau0 = 12.16  # hyperparams for prior
+sigma = 15 # suppose we know the variance of each test
+n = 4 # num of tests
+ybar = c(110, 125, 140)
+tau1 = 1/sqrt(4/sigma^2 + 1/tau0^2)
+mu1 = (1/tau0^2*mu0+ 4/sigma^2*ybar)*tau1^2
+summ1 = cbind(ybar, mu1, tau1)
+summ1
+```
+
+
+#### t-distribution
+Now, let's use a different prior. Any symmetric distribution are applicable hence here we use *t distribtuion* (https://en.wikipedia.org/wiki/Student%27s_t-distribution) with location $\mu$, scale $\tau$, and 2 degrees of freedom. i.e. $T = \frac{\theta-\mu}{\tau}$ follows a t-distribution.
+
+Then, 95th percentile should be 120, 
+$$
+P(\theta \leq 120)= P({\tau}T\leq 20) = P(T\leq \frac{20}{\tau})=0.95
+$$
+where $T$ is a standard t variable with 2 degrees of freedom. It follows:
+$$
+\tau = 20/t_2(.95)
+$$
+$t_v(p)$: $p$th quantile of a t random variable with $v$ degrees of freedom. 
+
+```{r}
+tscale = 20/qt(.95,2)
+tscale
+```
+
+We see the two priors in the following. 
+
+```{r}
+#par(mfrow=c(2,1))
+curve(1/tscale*dt((x-mu0)/tscale,2),from = 60, to = 140, xlab = "theta", ylab = "Prior Density")  # pdf needs to be scaled by 1/simga
+curve(dnorm(x,mean = mu0,sd=tau0), add = TRUE, lwd = 3)
+legend("topright",legend = c("t density", "normal density"), lwd = c(1,3))
+```
+The posterior is given by
+$$
+g(\theta|data) \propto \phi(\bar y|\theta, \sigma/\sqrt{n})g_T(\theta| v,\mu,\tau)
+$$
+where
+
+- $\phi(\bar y|\theta, \sigma)$: a normal density with mean $\mu$ and std-dev $\sigma$
+- $g_T(\theta| v,\mu,\tau)$: a t density with median $\mu$, scale param $\tau$ and degrees of freedom $v$.
+
+Since this posterior does not have a convenient functional form, we compute by a direct way: *prior $\times$ likelihood*.
+```{r}
+norm.t.compute = function(ybar){  # compute posterior expectation and std for each val of ybar
+  theta = seq(60,180, length=500)  # grid for theta
+  like = dnorm(theta, mean = ybar, sd = sigma/sqrt(n))  # likelihood function of ybar
+  prior = dt((theta-mu0)/tscale,2)  # prior (ignore tscale^-1)
+  post = prior*like
+  post = post/sum(post)  # scale to be probability
+  m = sum(theta*post)  # expected value of theta with posterior
+  s = sqrt(sum(theta^2*post)-m^2)  # standard dev of theta with posterior
+  c(ybar,m,s)
+}
+summ2 = t(sapply(c(110,125,140),norm.t.compute))
+dimnames(summ2)[[2]] = c("ybar","mu1 t","tau1 t")  # change the col names
+summ2
+```
+
+```{r}
+cbind(summ1,summ2)
+```
+
+We observe:
+
+- when $\bar y = 110$, post mean and std are similar
+- but $\bar y$ is large, i.e. different from the belief of prior, then t dist reflect the data result.
+
+**Extreme case: $\bar y = 140$**
+```{r}
+theta = seq(60,180, length=500)
+normpost = dnorm(theta, mean=mu1[3], sd=tau1)
+normpost = normpost/sum(normpost)
+plot(theta,normpost, type = "l", lwd=3,ylab = "Posterior Density")
+like = dnorm(theta,mean = 140, sd = sigma/sqrt(n))
+prior = dt((theta-mu0)/tscale,2)
+tpost = like*prior
+tpost = tpost/sum(tpost)
+lines(theta,tpost)
+legend("topright", legend = c("t prior", "normal prior"), lwd = c(1,3))
+```
+
+**Summary**
+
+- If the observation is close to the prior belief, the inference about mean is robust to the choice of prior
+- However, if the observation is different, the inference is not robust.
+
+### 3.5 Mixtures of Conjugate Priors
+Extend the idea of conjugate priors by using discrete mixtures. 
+
+**Problem**: learn about the prob of that a biased coin lands heads.
+
+Let $p$ be the prob of the coin lands heads, and our belief on that is either $p$ is close to 0.3 or 0.7. This prior can be expressed as follows:
+$$
+g(p) = \gamma g_1(p) + (1-\gamma)g_2(p)
+$$
+where $g_1$ is beta(6,14), and $g_2$ is beta(14,6), and the mixing prob is $\gamma=0.5$. 
+```{r}
+curve(0.5 * dbeta(x,6,14) + 0.5 * dbeta(x,14,6), from = 0, to = 1, xlab = "p", ylab = "Density")
+```
+
+Suppose we filp the coin $n$ times, and observe $s$ heads and $f=n-s$ tails.The posterior can be written as:
+$$
+g(p|\text{data}) \propto \gamma(\text{data}) g_1(p|\text{data}) + (1-\gamma(\text{data}))g_2(p|\text{data})
+$$
+where $g_1$ is beta($6+s,14+f$),  $g_2$ is beta($14+s,6+f$) and $\gamma(\text{data})$ is 
+$$
+\gamma(\text{data}) = \frac{\gamma f_1(s,f)}{\gamma f_1(s,f) + (1-\gamma)f_2(s,f)}
+$$
+where $f_j(s,f)$ is the prior predictive probability of $s$ heads in $n$ flip when the prior is $g_j$ <span style="color:red">I don't know where this comes from and how to compute the prior predictive probabaility</span>. 
+
+**My solution**
+$$
+f_i(s,f) = \frac{f_i(s,f|p) g_i(p)}{g(p|s,f)}
+$$
+where 
+
+- $f_i(s,f|p)$ binomial distribution of getting heads $s$ times with the probality $(a_i+s)/(a_i+b_i+s+f)$ i.e. prob after observing the data where $a_i,b_i$ is the params of the beta prior.
+- $g_i(p)$: prior beta($a_i,b_i$) density of getting $p = (a_i+s)/(a_i+b_i+s+f)$
+- $g_i(p|s,f)$: posterior beta($a_i+s,b_i+f$) density of getting $p = (a_i+s)/(a_i+b_i+s+f)$
+
+```{r}
+s = 7; f = 3
+f1 = dbinom(s, s+f, (6+s)/(20+s+f))*dbeta((6+s)/(20+s+f), 6, 14)/dbeta((6+s)/(20+s+f), 6+s, 14+f)
+f2 = dbinom(s, s+f, (14+s)/(20+s+f))*dbeta((14+s)/(20+s+f), 14, 6)/dbeta((14+s)/(20+s+f), 14+s, 6+f)
+f1/(f1+f2); f2/(f1+f2)
+```
+But my intuition is as follows. The sampling density and prior (the numerator of the above equation) should be besed only on *prior beliefs* not the observation of data.
+```{r}
+f1a = dbinom(s, s+f, (6)/(20))*dbeta((6)/(20), 6, 14)/dbeta((6+s)/(20+s+f), 6+s, 14+f)
+f2a = dbinom(s, s+f, (14)/(20))*dbeta((14)/(20), 14, 6)/dbeta((14+s)/(20+s+f), 14+s, 6+f)
+f1a/(f1a+f2a); f2a/(f1a+f2a)
+```
+
+
+
+```{r}
+probs = c(.5, .5)  # initial gamma
+beta.par1 = c(6,14)  # 1st prior
+beta.par2 = c(14,6)  # 2nd prior
+betapar = rbind(beta.par1,beta.par2)
+data=c(7,3)  # observation, 7 heads 3 tails
+post = binomial.beta.mix(probs,betapar,data)  # compute posteriro with mix beta priors
+post
+```
+Suppose we flip $n=10$ times and get $s = 7$ heads and $f=3$ tails, then the posterior will be
+$$
+g(p|\text{data}) = 0.093 \cdot \text{beta}(13,17) + 0.907 \cdot \text{beta}(21,9)
+
+$$
+
+```{r}
+curve(post$probs[1]*dbeta(x,13,17)+post$probs[2]*dbeta(x,21,9),from = 0, to = 1, lwd = 3, xlab = "p", ylab = "Density")
+curve(.5*dbeta(x,6,14)+.5*dbeta(x,14,6), from = 0, to=1, add=TRUE)
+legend("topleft", legend = c("Prior","Posterior"), lwd = c(1,3))
+```
+
+
+### 3.6 Bayesian Test of the Fairness of a Coin
+**Problem**: assessing the fairness of a coin. 
+
+Suppose we observe $y$ heads from binomially distributed with parameters $n$ and $p$.
+
+#### Frequentist Approach
+
+Our interest is testing the hypothesis: 
+$$
+H: p=0.5
+$$
+And the p-value can be obtained as:
+$$
+\text{p-value} = \min\{P(Y\leq y|H),P(Y\geq y|H)\}
+$$
+since we test the  double tail event. If the p-val is *small* we reject the hypothesis because it implies that the hypothesis may not adequately explain the observation.  In other words, the observation is far more rare event than under the hypothesis.
+
+If we observe $y=5$ with $n=20$, then we can compute the p-val as
+```{r}
+2 * pbinom(5, 20, 0.5) 
+```
+since this value  is smaller than 0.05, we reject the hypotheis and conclude that **the coin is not fair**. 
+
+
+#### Bayesian Approach
+
+Here we see the problem from a Bayesian view point. Two models can be considered:
+
+- the coin is fair ($p=0.5$)
+- the coin is *not* fair ($p\neq0.5$)
+
+Suppose we are indeferent in the two models so assing 1/2 for both. 
+Thus the prior can be written as follows:
+$$
+g(p) = 0.5 \cdot I(p=0.5) + 0.5 \cdot I(p \neq 0.5)\cdot g_1(p)
+$$
+where $g_1(p)$ is a beta($a,a$) prior on $p$ (for the not fair belief), and $I$ is an indicator function, while if we believe the coin is fair, then $p=0.5$ (concentrated).
+
+After observing data, we update the prior to the posterior:
+$$
+g(p|y)  = \lambda(y)I(p=0.5) + (1-\lambda(y))I(p \neq 0.5) g_1(p|y)
+$$
+where $g_1(p|y)$ is beta($a+y,a+n-y$) and $\lambda(y)$ is the posterior prob of the model where the coin is fair,
+$$
+\lambda(y) = \frac{.5P(Y=y|.5)}{.5P(Y=y|.5) + .5m_1(y)}
+$$
+where $P(y|.5)$ is the binomial density for $y$ when $p=0.5$, and $m_1(y)$ is the prior predictive density for $y$ using the beta density, i.e.
+$$
+m_1(y) = \frac{f(y|p)g_1(p)}{g_1(p|y)}
+$$
+where $f(y|p)$ is the binomial density s.t. the prob of $y$ when $p$, $g_1(p)$ is the prior and $g_1(p|y)$ is the posterior assuming that the coin is not fair. 
+
+Here we set beta(10,10) for the prior of being a non fair coin
+```{r}
+n = 20; y = 5 # observation
+a = 10  # param for prior for not being a fair coin
+p = 0.5 # prior belief for being a fair coin
+m1 = dbinom(y,n,p) * dbeta(p, a, a)/dbeta(p, a+y, a+n-y)  # prior predictive density for y
+lambda = dbinom(y, n, p)/(dbinom(y, n, p) + m1)
+lambda
+```
+
+We get the posterior probability of the hypothesis of fairness (ie the coin is fare) is 28%, which is less evidence against fairness obtained by p-value test.
+
+This value can be obtained by `pbetat` of `LearnBayes` package
+```{r}
+pbetat(p, 0.5, c(a,a),c(y,n-y))
+```
+
+`bf` is the *Bayes facotr* in support of the null hypothesis, which will be discussed in Chapter 8.
+
+Since the choice of $a=10$ is arbitrary, we want to see the sensitivity of the posterior calculation to the choice of the parameter. 
+```{r}
+prob.fair = function(log.a){  # define a funciton to compute the post prob of fairness with input of log a
+  a = exp(log.a)
+  m2=dbinom(y, n, p)*dbeta(p,a,a)/dbeta(p,a+y,a+n-y)
+  return(dbinom(y,n,p)/(dbinom(y,n,p)+m2))
+}
+```
+Here we select the $\log(a)$ as the input of the function.
+
+```{r}
+n = 20; y = 5; p = 0.5
+curve(prob.fair(x), from = -4, to = 5, xlab = "log a", ylab = "Prob(coin is fair)", lwd = 2)
+```
+We see the sensitivity from $e^{-4}$ to $e^5$. We observe that the prob of fairness is grater than 0.2 for all $a$, and comparing the p-value was 0.042 (note this value is not probablity), the Bayesian approach counts the belief of the coin being fair.
+
+#### Another difference between Frequentist vs Bayesian
+p-value is based on the probability that *5 heads or fewer* but our Bayesian approach was just using the fact of *exactly 5 heads*. So what will happen if we apply  *5 heads or fewer*  for Bayesian.
+Then, the posterior prob of the coin is fair can be expressed as:
+$$
+\lambda(y) = \frac{.5P(Y \leq y|p=.5)}{.5P(Y \leq y|p=.5) + .5P_1(Y \leq y)}
+
+$$
+where $P_1(Y \leq y) = \sum_{k=0}^ym_1(k)$
+```{r}
+n = 20; y = 5; p = 0.5; a = 10 # problem parameters
+# compute P1
+m2 = 0
+for (k in 0:y){
+  m2 = m2 + dbinom(k, n, p) * dbeta(p, a, a)/ dbeta(p, a+k, a+n-k)  # each m2
+}
+lambda = pbinom(y, n, p)/(pbinom(y, n, p) + m2)
+lambda
+```
+We see that the result 0.218 is smaller than the previous solution 0.280 which is based only on the num of heads is 5. Hence, this is reasonable since observing *5 heads or fewer* is stronger evidence against fairness than *5 heads*. 
+

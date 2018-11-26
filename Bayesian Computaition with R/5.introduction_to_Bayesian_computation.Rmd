@@ -1,0 +1,295 @@
+---
+title: "4. Multiparameter Models"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+### Import the library
+```{r}
+library(LearnBayes)
+library(kableExtra)  # for display table in HTML format
+```
+
+### 5.1 Introduction
+The two way for summarization of posterior:  
+- Direct `R` function if the sampling density has a familiar functional form.
+- Brute-force where one computes value of the posterior on a grid. 
+
+In this chapter, we deal with more sophisticated methods for *computational problems*.
+
+### 5.2 Computing Integrals
+The Bayesian recipe for inference is conceptually simple. If we observe data $y$ from a sampling density $f(y|\theta)$, where $\theta$ is a parameter vector and assign the prior $g(\theta)$. Then the posterior is proportional to:
+$$
+g(\theta|y) \propto g(\theta)f(y|\theta).
+$$
+*The computational problems is to summarize this multivariate pdf to perform inference about functions of $\theta$*. 
+
+1) The posterior mean of a function $h(\theta)$:
+$$
+E(h(\theta|y)) \propto \frac{\int h(\theta)g(\theta)f(y|\theta)d\theta}{\int g(\theta)f(y|\theta)d\theta}
+$$
+2) The posterior prob that $h(\theta)$ falls in a set $A$:
+$$
+P(h(\theta)\in A|y) = \frac{\int_{h(\theta)\in A} g(\theta)f(y|\theta)d\theta}{\int g(\theta)f(y|\theta)d\theta}
+$$
+3) Marginal posterior of density $\theta_1$ by integrating a nuisance param $\theta_2$:
+$$
+g(\theta_1|y) \propto \int g(\theta_1,\theta_2|y) d\theta_2 
+$$
+There are number of **quadrature** methods are available, however they are limited in terms of 1) the choice of quadrature depends on the location and shape of the post 2)  the number of evaluation grows exponentially. Hence, we focus on the methods for computing integrals which are applicalble to high-dim Bayesian problems.
+
+
+### 5.3 Setting Up a Problem in `R`
+Suppose one is able to express an explicity expression for the joint posterior. We don't have to include any normalizaing constants that don't contain the params. It is usefult to *reparameterize* all params so that the are all **real-valued**. For example, if one is interested in a proportion $p$, then we can transform by the logit: $\text{logit}(p) = \log(p/(1-p))$. 
+
+The log of posterior can be expressed in a following grneral way.
+```
+mylogposterior = function(theta,data){
+[statements that compute the log density]
+return(val)
+}
+```
+
+*Assumptions*  
+- `theta`, ie $\theta$ is $k$-dim vector.
+- `data`, $y$ is a vec of observed values or a list of data values and other model specifications such as the prior hyperparams. 
+
+Suppose we observe data $y=(y_1,...,y_n)$ from a sampling density $f(y|\theta)$ and one assigns the prior $g(\theta)$. The log of the post density of $\theta$ is given by (ignoring an additive constant):
+$$
+\log g(\theta|y) = \log g(\theta) + \sum_{i=1}^n \log f(y_i|\theta)
+$$
+**Gaussian case**: suppose we sample from a normal distribution with mean $\mu$ and std $\sigma$. the param vector is $\theta = (\mu, \log \sigma)$ (to be real-valued). We place the prior $N(10,20)$ on the mean $\mu$ and a flat prior on $\log \sigma$. Then the post would be 
+$$
+\log g(\theta|y) = \log \phi(\mu;10,20) + \sum_{i=1}^n \log f(y_i|\mu,\sigma)
+$$
+where $\phi(y;\mu,\sigma)$ is the normal pdf with mean $\mu$ and std $\sigma$. The likelihood can be expressed as:
+```{r}
+logf = function(y, mu, sigma)
+  dnorm(y, mean=mu, sd=sigma,log = TRUE)
+```
+If we have $n$ data, simply by summing all likelihoods:
+```
+sum(logf(data,mu,sigma))
+```
+Then, the function `mylogposterior` can be defined as follows:
+```{r}
+mylogposterior = function(theta, data){
+  n = length(data) # num of data
+  mu = theta[1]; sigma = theta[2] # retrieve theta vals
+  logf = function(y, mu, sigma){  # def of likelihood on a data
+    dnorm(y, mean=mu, sd=sigma,log = TRUE)
+  }
+  val = dnorm(mu, mean = 10, sd = 20, log = TRUE) + sum(logf(data,mu,sigma)) # compute the log post
+  return(val)
+}
+```
+
+### 5.4 A Beta-Binomial Model for Overdispersion
+Tsutakawa et al (1985) describe the problem of simultaneously estimationg the rates of death from stomach cancer for males at risk in the age of 45-64 for the largest cities in Missouri. The following table shows the mortality rates for 20 of these cities; $n$ the num at risk and $y$ the num of cancer deaths. 
+```{r}
+data(cancermortality)
+attach(cancermortality)
+kable(cancermortality)%>%
+kable_styling(full_width = F)
+```
+A first model would be {$y_j$} represents indepedent binomial samples with sample size {$n_j$} and a fixed prob $p$. But one notices that the data is *overdispersed* in the sense that {$y_j$} display more variation than that of binomial model. Thus we apply **beta-binomial** model that assiuming $y_j$ is from a binomial distribution with a parameter $p$ that has a beta distribution with mean $\eta$ and precision $K$ (https://en.wikipedia.org/wiki/Beta-binomial_distribution).
+$$
+f(y_j|\mu,K) = {n_j \choose y_j} \frac{B(K\eta+y_j,K(1-\eta)+n_j-y_j)}{B(K\eta,K(1-\eta))}.
+ 
+$$
+Note that $K = \alpha + \beta, \eta = \alpha/(\alpha + \beta)$ of Wikipedia definition. Suppose we assign the vague prior:
+$$
+g(\eta,K) \propto \frac{1}{\eta(1-\eta)}\frac{1}{(1+K)^2}.
+$$
+Then the posterior of the params is given by
+$$
+g(\eta,K|\text{data}) \propto \frac{1}{\eta(1-\eta)}\frac{1}{(1+K)^2} \prod_{j=1}^{20} \frac{B(K\eta+y_j,K(1-\eta)+n_j-y_j)}{B(K\eta,K(1-\eta))}
+$$
+where $0<\eta<1,K>0$.  
+
+Let's do the process in `R`.
+```{r}
+betabinexch0 = function(theta, data){
+  eta = theta[1]; K = theta[2]  # retrieve params
+  y = data[,1]; n = data[,2] # data vactors
+  N = length(y)
+  logf = function(y,n,K,eta){  # log of the likelihood
+    lbeta(K*eta + y, K*(1-eta)+n-y) - lbeta(K*eta,K*(1-eta)) # lbeta: log of the beta function
+  }
+  like = sum(logf(y,n,K,eta))  # sum of likelihoods
+  val = like - 2*log(1+K) - log(eta) - log(1-eta)  # log val of post 
+  return(val)
+}
+```
+See a contour plot of the posterior.
+```{r}
+mycontour(betabinexch0,c(.0001,.003,1,20000),cancermortality,xlab="eta",ylab="K")
+```
+We observe the **strong skewness** in the density especially for $K$. 
+
+Following the guide of Section 5.3, we transform the params to the real-line.
+$$
+\theta_1 = \text{logit}(\eta) = \log(\frac{\eta}{1-\eta})\\
+\theta_2 = \log(K)
+$$
+The posterior is:
+$$
+g_1(\theta_1,\theta_2|\text{data}) = g(\frac{e^{\theta_1}}{1+e^{\theta_1}},e^{\theta_2})\frac{e^{\theta_1+\theta_2}}{(1+e^{\theta_1})^2}
+$$
+where the right term of the product is the Jacobian:
+$$
+\left| \frac{\partial(\eta,K)}{\partial(\theta_1,\theta_2)} \right| = \left|\begin{bmatrix}
+\frac{\partial \eta}{\partial \theta_1} & \frac{\partial \eta}{\partial \theta_2}\\
+\frac{\partial K}{\partial \theta_1} & \frac{\partial K}{\partial \theta_2}
+\end{bmatrix} \right|
+=\left| \begin{bmatrix}
+\frac{e^{\theta_1}}{(1+e^{\theta_1})^2} & 0\\
+0 & e^{\theta_2}
+\end{bmatrix} \right|  \\
+= \frac{e^{\theta_1+\theta_2}}{(1+e^{\theta_1})^2}
+$$
+
+The corresponding posterior can be defined as follows `betabinexch`:
+```{r}
+betabinexch = function(theta, data){
+  eta = exp(theta[1])/(1+exp(theta[1])); K = exp(theta[2])
+  y = data[,1]; n = data[,2] # data vactors
+  N = length(y)
+  logf = function(y,n,K,eta){  # log of the likelihood
+    lbeta(K*eta + y, K*(1-eta)+n-y) - lbeta(K*eta,K*(1-eta)) # lbeta: log of the beta function
+  }
+  like = sum(logf(y,n,K,eta))  # sum of likelihoods
+  val = like + theta[2] - 2*log(1+exp(theta[2]))  # log val of post 
+  return(val)
+}
+```
+Plot the contour.
+```{r}
+mycontour(betabinexch, c(-8,-4.5, 3, 16.5), cancermortality, xlab="logit eta", ylab = "log K")
+```
+Observing that the density has an unusual shape, the strong skewness has been reduced and distribution is more amenable to the computational methods in the followings. 
+
+
+### 5.5 Approximates Based on Posterior Models
+One method of summarizing a multivariate posterior distribution is based on the behavior of the density about its **mode**. Let $\theta$ be a param vector with prior $g(\theta)$, and suppose we observe data $y$ with sampling density $f(y|\theta)$. Then consider the log of the joint density:
+$$
+h(\theta,y) = \log (g(\theta)f(y|\theta)) = h(\theta)
+$$
+Note that since data $y$ is not random, we simply consider $h$ as the function of $\theta$. 
+
+Denoting the posterior mode of $\theta$ by $\hat \theta$ (hence $h(\hat \theta) = 0$). Then the second-order Taylor approximation can be expressed as:
+$$
+h(\theta) \approx h(\hat \theta) + (\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)
+$$
+where $h''(\hat \theta)$ is the Hessian evaluated at the mode. The post density is approximated by a multivariate normal density with mean $\hat \theta$ and variance-covariance matrix:
+$$
+V = (- h''(\hat \theta))^{-1}
+$$
+It means:
+$$
+g(\theta|y) \propto g(\theta)f(y|\theta)\\
+g(\theta|y) \propto \exp h(\theta) \propto \exp[\frac{1}{2}(\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)]\\
+= \exp[-\frac{1}{2}(\theta-\hat \theta)^T (\{-h''(\hat \theta)\}^{-1})^{-1}(\theta-\hat \theta)]\\
+= \exp[-\frac{1}{2}(\theta-\hat \theta)^T V^{-1}(\theta-\hat \theta)]\\
+$$
+In addition, we can derive the prior predictive by integrate out $\theta$:
+$$
+f(y) \approx (2\pi)^{d/2}g(\hat \theta)f(y|\hat\theta)|-h''(\hat\theta)|^{-1/2}
+$$
+where $d$ is dim of $\theta$.
+**Proof**  
+The prior predictive distribution $f(y)$ can be given as:
+$$
+f(y) = \int g(\theta)f(y|\theta)d\theta = \int \exp(h(\theta))d\theta\\
+\approx \int \exp \{h(\hat \theta) + (\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)\}d\theta\\
+= \exp\{h(\hat \theta)\}\int \exp \{(\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)\}d\theta
+$$
+we have that $\exp\{h(\hat \theta)\} = g(\hat\theta)f(y|\hat\theta)$. Also from the def of multivariate normal density:
+$$
+1 = \int \frac{\exp(-\frac{1}{2}(x-\mu)^T\Sigma^{-1}(x-\mu))}{\sqrt{(2\pi)^k|\Sigma|}}dx \\
+\iff (2\pi)^{k/2}|\Sigma|^{1/2} = \int {\exp(-\frac{1}{2}(x-\mu)^T\Sigma^{-1}(x-\mu))}dx
+$$
+since we have that
+$$
+\exp[-\frac{1}{2}(\theta-\hat \theta)^T (\{-h''(\hat \theta)\}^{-1})^{-1}(\theta-\hat \theta)]
+= \exp[-\frac{1}{2}(\theta-\hat \theta)^T V^{-1}(\theta-\hat \theta)]
+$$
+One can derive
+$$
+\int \exp \{(\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)\}d\theta \\
+= \int \exp[-\frac{1}{2}(\theta-\hat \theta)^T V^{-1}(\theta-\hat \theta)] d\theta\\
+= (2\pi)^{d/2}|V|^{1/2} = (2\pi)^{d/2}|(-h''(\hat\theta))^{-1}|^{1/2}\\
+=  (2\pi)^{d/2}|-h''(\hat\theta)|^{-1/2}
+$$
+Thus 
+$$
+f(y) =  \exp\{h(\hat \theta)\} \cdot\int \exp \{(\theta-\hat \theta)^T h''(\hat \theta)(\theta-\hat \theta)\}d\theta\\
+= g(\hat\theta)f(y|\hat\theta) \cdot  (2\pi)^{d/2}|-h''(\hat\theta)|^{-1/2}
+$$
+*(Q.E.D)*
+
+To apply this approximation, we need to find the mode of the posterior $\hat \theta$. One method is *Newton's method*. The estimation of the mode at $t$-th iteration $\theta^t$ is given by
+$$
+\theta^t = \theta^{t-1}-[h''(\theta^{t-1})]^{-1}h'(\theta^{t-1})
+$$
+where $\theta^{t-1}$ is the previous value and $\theta^0$ is an initial value. Other approach is the *Nelder-Mead* algorithm (https://en.wikipedia.org/wiki/Nelder%E2%80%93Mead_method) which is the default method of `R` function `optim`. This algorithm is an iterative method based on the evaluation of the objective over verticeis of simplex. In the following we use Nelder-Mead since it is less sensitive to the choice of starting value compared to Newton's.
+
+After evaluating the log posterior density, the function `laplace` in `LearnBayes` will compute the joint posterior mode by using `optim`. Let's see them with the follwing example.
+
+### 5.6 Example
+We test with beta-binomial modeling example. Based on our contour plot, we start the Nelder-Mead method with initial guess of $(\text{logit}(\eta),\log K)= (7,6)$.
+
+```{r}
+fit = laplace(betabinexch,c(-7,6),cancermortality)
+fit
+```
+The result shows that the post mode to be (-6.82,7.58). From the optput of `laplace`, we have the approx that $(\text{logit}(\eta),\log K)$ follows a bivariate normal with mean vector `fit$mode` and covariance matrix `fit$var`. The following figure shows the contour of this density:
+```{r}
+npar = list(m=fit$mode,v=fit$var)
+mycontour(lbinorm,c(-8,-4.5,3,16.5),npar,xlab="logit eta",ylab="log K")
+```
+We see the big difference between the exact (section 5.4) and approxed normal posteriors. 
+
+One advantage of MN-algorithm is *one obtains quick summaries of the parameters by the multivariate normal approx*. One can constract approx prob interval from diag of the covariance matrix. For instance 90%  prob interval for the params:
+```{r}
+se = sqrt(diag(fit$var))
+fit$mode-1.645*se  # lower limit
+fit$mode+1.645*se  # upper
+```
+Hence the 90% interval estimate for $\text{logit}(\eta)$ is (-7.28,-6.36) and for $\log K$ is (5.67,9.49).
+
+### 5.7 Monte Carlo Method for Computing Integrals
+A second general approach for summarizing a posterior is based on **simulation**. Suppose the posterior $g(\theta|y)$ and we are interested in *learning about a function $h(\theta)$*. The post mean of the function is given by:
+$$
+\mathbb{E}[h(\theta)|y] = \int h(\theta) g(\theta|y)d\theta.
+$$
+Suppose we can simulate an independent sample $\theta^1,...,\theta^m$ from the post. Then the Monte Carlo estimate at the post mean is given by:
+$$
+\bar h = \frac{\sum_{j=1}^m h(\theta^j)}{m}
+$$
+The associated simulation standard error of this estimate is:
+$$
+se_{\bar h} = \sqrt{\frac{\sum_{j=1}^m (h(\theta^j)-\bar h)^2}{(m-1)m}} = \frac{\bar \sigma_{h}}{m}
+$$
+
+The Monte Carlo approach is effective if *simulated samples are available from the exact posterior*. In the example of section 2.4, the proportion of heavy sleepers $p$ was our interest. Then suppose we are now interested in the posterior mean of $p^2$ (the predictive prob that 2 students in a future sample will be heavy sleepers). Then we can estimate by:
+```{r}
+p = rbeta(1000, 14.26, 23.19) # beta(14.26, 23.19) = posterior
+est = mean(p^2)
+se = sd(p^2)/sqrt(1000)
+c(est,se)
+```
+Then, the Monte Carlo estimate at $\mathbb{E}[p|data]$ is 0.148 with se of 0.002.
+
+
+### 5.8 Rejection Sampling

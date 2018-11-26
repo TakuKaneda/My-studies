@@ -1,0 +1,389 @@
+---
+title: "4. Multiparameter Models"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+
+### Import the library
+```{r}
+library(LearnBayes)
+```
+
+### 4.1 Introduction
+Bayesian models with several unknown parameters.
+
+### 4.2 Norma data with both parameters unknown
+A normal population where the mean and variance are unknown.  
+Data: times for men running the NY marathon.  
+- $y_i$: time in minutes  $i=1,...,20$, and $n=20$
+- Assume it follows $N(\mu,\sigma)$
+
+If we assume a standard noninformative prior $g(\mu,\sigma^2) \propto \frac{1}{\sigma^2}$, the posterior density of the mean and variance is given by:
+$$
+g(\mu,\sigma^2) \propto \frac{1}{\sigma^2} \times \frac{1}{\sigma^n}\exp(-\frac{1}{2\sigma^2}\sum_{i=1}^n(y_i - \mu)^2) \\  
+= \frac{1}{(\sigma^2)^{n/2+1}}\exp(-\frac{1}{2\sigma^2}\sum_{i=1}^n(y_i  + \bar y  - \bar y- \mu)^2)) \\
+= \frac{1}{(\sigma^2)^{n/2+1}}\exp(-\frac{1}{2\sigma^2}\sum_{i=1}^n((y_i -\bar y)^2  +  (\bar y- \mu)^2)) \\
+= \frac{1}{(\sigma^2)^{n/2+1}}\exp(-\frac{1}{2\sigma^2}(S+n(\mu - \bar y)^2))
+$$
+where $S = \sum_{i=1}^n (y_i-\bar y)^2$, and $\bar y$ is the sample mean.  
+This joint posterior has the familiar normal/inverse chi-square form where (https://en.wikipedia.org/wiki/Conjugate_prior#Continuous_distributions):  
+- post of $\mu$ conditional on $\sigma^2$ is distributed as $N(\bar y, \sigma/\sqrt{n})$:
+$$
+g(\mu|\sigma^2,y) \propto \exp(-\frac{n(\mu - \bar y)^2}{2\sigma^2})\\
+\propto \frac{1}{\sqrt{2\pi\sigma^2/n}}\exp({-\frac{(\mu - \bar y)^2}{2\sigma^2/n}}) \sim N(\bar y, \sigma/\sqrt{n})
+$$
+- marginal post of $\sigma^2$ is distributed as $S\chi^{-2}_{n-1}$.i.e. 
+$$
+g(\sigma^2|y) \propto \frac{1}{\sigma^{n+2}} \exp(-\frac{S}{2\sigma^2}) \int\exp (-\frac{n(\mu - \bar y)^2}{2\sigma^2})d\mu\\
+= \frac{1}{\sigma^{n+2}} \exp(-\frac{S}{2\sigma^2}) \sqrt{2\pi\sigma^2/n}\\
+\propto \frac{1}{(\sigma^2)^{\frac{n-1}{2}+1}}\exp (-\frac{(n-1)\frac{S}{n-1}}{2\sigma^2})
+$$
+Thus it follows $\chi^{-2}(n-1,S/(n-1))$. It implies $\sigma^2/S$ follows $\chi^{-2}_{n-1}$. 
+(https://en.wikipedia.org/wiki/Scaled_inverse_chi-squared_distribution)
+
+```{r}
+data("marathontimes")  # read data
+attach(marathontimes)  # attach
+# define a function mycontour:
+# arg1: function
+# arg2: rectangle for plotting
+# arg3: data
+# arg4..: other parameters for `contour`
+d = mycontour(normchi2post, c(220,330,500,9000),time, xlab = "mean", ylab = "variance")
+```
+The curves show the 10%, 1% and .1% of the maximum value of the post density over the grid.  
+*Note*: `normchi2post` computes the log of the joint post density. 
+
+**Summarize by simulation**  
+Generate 1000 samples from the joint post. 
+```{r}
+S = sum((time - mean(time))^2)
+n = length(time)
+sigma2 = S/rchisq(1000, n-1)  # inverse chi-squared
+mu = rnorm(1000, mean = mean(time), sd = sqrt(sigma2/n))
+```
+
+plot the points on the contour.
+```{r}
+d = mycontour(normchi2post, c(220,330,500,9000),time, xlab = "mean", ylab = "variance")
+points(mu, sigma2)
+```
+
+95% credible interval of $\mu$ is:
+```{r}
+quantile(mu, c(0.025,0.975))
+```
+For the std $\sigma$:
+```{r}
+quantile(sqrt(sigma2), c(0.025,0.975))
+```
+
+### 4.3 A mulitnomial model
+1988 presidential election data:
+- $y_1 = 727$: George Bush
+- $y_2 = 583$: Michael Dukakis
+- $y_3 = 137$: others
+
+Assume that the distribution follows a multinomial model and if we assign a *uniform prior* to the multinomial vector $\theta = (\theta_1,\theta_2,\theta_3)$, the posterior will be prop to
+$$
+g(\theta) \propto \theta_1^{y_1}\theta_2^{y_2}\theta_3^{y_3}
+$$
+We can recognize as a Dirichlet distribution (https://en.wikipedia.org/wiki/Dirichlet_distribution) with params: $(y_1+1,y_2+2,y_3+1)$.  
+The focus is to *compare the propotions of voters for Bush ($\theta_1$) and Dukakis ($\theta_2$)* by considering $\theta_1-\theta_2$.
+
+We perform the simulation to obtain the post distribution. Although `R` doesn't have the Dirichlet distribution function, one can use the fact that if $W_i$ is independent distributed from gamma($\alpha_i,1$) for $i=1,2,3$ and let $T=\sum W_i$. Then the distribution of the proportions $W_i/T$ has a Dirichlet($\alpha_1,\alpha_2,\alpha_3$). Indeed, `rdirichlet` in `LearnBayes` does this transformation.  
+We generate 1000 samples.
+```{r}
+alpha = c(727+1, 583+1, 137+1)  
+theta = rdirichlet(1000, alpha)
+```
+Histogram of the difference $\theta_1-\theta_2$
+```{r}
+hist(theta[,1]-theta[,2], main = "")
+```
+
+We now consider the election of 2008, between Barack Obama and John McCain.  
+**Problem**: predict the total number of electoral votes $EV_O$ for each candidate.  
+- $\theta_{O_j}/\theta_{M_j}$: proportion of voters for Obama/McCain. at $j$th state.
+One can compute the $EV_O$ of Obama as:
+$$
+EV_O= \sum_{j=1}^{51} EV_j \cdot I(\theta_{O_j} > (\theta_{M_j})
+$$
+where $EV_j$ is the num of EV in jth state.
+
+On the day before Election Day, CNN gives the result of the most resent poll in each state. Let $q_{O_j}/q_{M_j}$ denote the sample proportions Obama/McCain at jth state. We assume that each poll is based on 500 samples. If we assign a uniform prior on the vector of proportions, and assume each proportion set $(\theta_{O_j},\theta_{M_j})$ have an independent post distribution where the proportion ($\theta_{O_j},\theta_{M_j},1-(\theta_{O_j}+\theta_{M_j})$) have a Dirichlet distribution with params ($500q_{O_j}+1,500q_{M_j}+1, 500(1-q_{O_j}-q_{M_j})+1$).  
+
+```{r}
+library(LearnBayes)
+data("election.2008")
+attach(election.2008)
+```
+
+Define a function that compute the winning probability of Obama.
+```{r}
+prob.Obama = function(j){
+  p = rdirichlet(5000, 500*c(O.pct[j],M.pct[j],100-O.pct[j]-M.pct[j])/100 + 1)
+  mean(p[,1]>p[,2]) # count the winning of Obama
+}
+```
+Compute the prob for all states.
+```{r}
+Obama.win.prob = sapply(1:51, prob.Obama)
+```
+
+1000 simulations using the probability
+```{r}
+sim.election = function(){
+  winner = rbinom(51,1,Obama.win.prob)  # when we try one toss of biased 51 coins (states), with prob of winning Obama
+  sum(EV*winner) # num of voters in the simulations for Obama
+}
+sim.EV = replicate(1000,sim.election())
+```
+
+Histogram of the post of $EV_O$
+```{r}
+hist(sim.EV, min(sim.EV):max(sim.EV), col="blue")
+abline(v=365,lwd=3, col ="red") # Actually Obama received 365 votes
+text(375,30,"Actual \n Obama \n total")
+```
+We might be able to improve the result by using more data than just using one poll data for each state, but we see that the actual data did fall within 90% prediction interval.
+```{r}
+quantile(sim.EV, c(0.05, 0.95))
+```
+
+
+### 4.4 A Bioassay Experiment
+Test dose levels of a compound for animals.  
+Data: Gelman et al. (2003), dose level (log g/ml), num of animals and num of deaths for 4 groups.
+
+- $y_i$: num of death out of $n_i$ with dose level $x_i$.
+- $y_i$ follows binomial($n_i,p_i$) where $p_i$ is the prob follows the logistic model:
+$$
+\log(p_i/(1-p_i)) = \beta_0 + \beta_1 x_i
+$$
+The likelihood of the params given by:
+$$
+L(\beta) \propto \prod_{i=1}^4 p_i^{y_i}(1-p_i)^{n_i-y_i}
+$$
+where $p_i = \exp(\beta_0+\beta_1 x_i)/(1+\exp(\beta_0+\beta_1 x_i))$.  
+Starting from defnining data.
+```{r}
+x = c(-.86, -.3, -.05, 0.73) # dose level
+n = c(5,5,5,5)  # observation
+y = c(0,1,3,5)  # num of death
+data = cbind(x,n,y)
+```
+
+A standard classical approach is **maximum likelihood**, which can be done by `glm`.
+```{r}
+response = cbind(y, n-y) # death vs alive
+results = glm(response ~ x, family = binomial)
+summary(results)
+```
+
+Suppose we have prior beliefs about the regression params $\beta_0,\beta_1$ at different dose levels $x_L,x_H$.  
+1) $x_L = -0.7$:  the 50% and 90% percentile of prob of death $p_L$ are 0.2 and 0.5 respectively. Hence,
+```{r}
+beta.select(list(p=.5,x=.2), list(p=.9,x=.5))
+```
+Beta(1.12,3.56) is our choice for prior of $x_L = -0.7$.  
+2) $x_H = 0.6$:  the 50% and 90% percentile of prob of death $p_H$ are 0.8 and 0.98 respectively. Hence,
+```{r}
+beta.select(list(p=.5,x=.8), list(p=.9,x=.98))
+```
+Beta(2.10,0.74) is our choice for prior of $x_H= 0.6$.  
+
+Suppose those beliefs are independent, then the joint prior is:
+$$
+g(p_L,p_H) \propto p_L^{1.12-1}(1-p_L)^{3.56-1}  p_H^{2.10-1}(1-p_H)^{0.74-1}
+$$
+One can show that the regression vector $(\beta_0,\beta_1)$ can be transformed to
+$$
+g(\beta_0,\beta_1) \propto p_L^{1.12}(1-p_L)^{3.56}  p_H^{2.10}(1-p_H)^{0.74}
+$$
+with
+$$
+p_Y = \frac{\exp(\beta_0+\beta_1 x_Y)}{1+\exp(\beta_0+\beta_1 x_Y)}, Y = L,H.
+$$
+**proof**: (one can skip)
+From the transformation of a function with Jacobian
+$$
+g(\beta_0,\beta_1) = \left| \frac{\partial(p_L,p_H)}{\partial(\beta_0,\beta_1)} \right| g(p_L,p_H)
+$$
+We know that for $Y=L,H$: 
+$$
+\frac{\partial p_Y}{\partial \beta_0} = \frac{\exp(\beta_0+\beta_1 x_Y)}{(1+\exp(\beta_0+\beta_1 x_Y))^2} = p_Y(1-p_Y),\\
+\frac{\partial p_Y}{\partial \beta_1} = x_Y\frac{\exp(\beta_0+\beta_1 x_Y)}{(1+\exp(\beta_0+\beta_1 x_Y))^2} = x_Yp_Y(1-p_Y),\\
+$$
+Hence, the Jacobian is
+$$
+\left| \frac{\partial(p_L,p_H)}{\partial(\beta_0,\beta_1)} \right| = \left|\begin{bmatrix}
+\frac{\partial p_L}{\partial \beta_0} & \frac{\partial p_L}{\partial \beta_1}\\
+\frac{\partial p_H}{\partial \beta_0} & \frac{\partial p_H}{\partial \beta_1}
+\end{bmatrix} \right|
+=\left|\begin{bmatrix}
+p_L(1-P_L) & x_Lp_L(1-P_L)\\
+p_H(1-P_H) & x_Hp_H(1-P_H)
+\end{bmatrix} \right| \\
+= (x_H-x_L)p_L^{}(1-p_L)^{}  p_H^{}(1-p_H)^{}
+$$
+Thus
+$$
+g(\beta_0,\beta_1) = \left| \frac{\partial(p_L,p_H)}{\partial(\beta_0,\beta_1)} \right| g(\beta_0,\beta_1) \\
+\propto [(x_H-x_L)p_L^{}(1-p_L)^{}  p_H^{}(1-p_H)^{}] \times [p_L^{1.12-1}(1-p_L)^{3.56-1}  p_H^{2.10-1}(1-p_H)^{0.74-1}]\\
+\propto p_L^{1.12}(1-p_L)^{3.56}  p_H^{2.10}(1-p_H)^{0.74}
+$$
+This prior has the same functional form as the likelihood, where the beta params can be viewed as *the num of deaths and survivals in a prior experiments* at two dose levels, e.g. num of death $y=1.12$ out of $n=1.12+3.56 = 4.68$ with dose level $x_L=-0.7$.  
+**Prior**  
+Lets plot the prior.
+```{r}
+# when x = -.7, median and 90th percentile of p are (.2,.4)
+# when x = +.6, median and 90th percentile of p are (.8, .95)
+a1.b1=beta.select(list(p=.5,x=.2),list(p=.9,x=.5))  
+a2.b2=beta.select(list(p=.5,x=.8),list(p=.9,x=.98))
+x=c(-0.7,0.6)
+response=rbind(a1.b1,a2.b2) 
+fit = glm(response ~ x, family = binomial)  # fitting with prior observation
+```
+```{r}
+plot(c(-1,1),c(0,1),type="n",xlab="Dose",ylab="Prob(death)")
+lines(-0.7*c(1,1),qbeta(c(.25,.75),a1.b1[1],a1.b1[2]),lwd=4)
+lines(0.6*c(1,1),qbeta(c(.25,.75),a2.b2[1],a2.b2[2]),lwd=4)
+points(c(-0.7,0.6),qbeta(.5,c(a1.b1[1],a2.b2[1]),c(a1.b1[2],a2.b2[2])),
+    pch=19,cex=2)
+text(-0.3,.2,"Beta(1.12, 3.56)")
+text(.2,.8,"Beta(2.10, 0.74)")
+curve(exp(fit$coef[1]+fit$coef[2]*x)/
+     (1+exp(fit$coef[1]+fit$coef[2]*x)),add=T)
+```
+
+**Posterior**  
+The posterior can be given by
+$$
+g(\beta_0,\beta_1|y) \propto \prod_{i=1}^6 p_i^{y_i}(1-p_i)^{n_i-y_i}
+$$
+with the two additional dose levels. 
+```{r}
+prior = rbind(c(-0.7, 4.68, 1.12), 
+              c(0.6, 2.84, 2.10))  # prior data
+data.new = rbind(data, prior)  # add the prior observation
+```
+
+We plot the log posterior of $(\beta_0,\beta_1)$ by `logisticpost` in `LearnBayes`.
+```{r}
+mycontour(logisticpost,c(-2,3,-1,11), data.new, xlab="beta0",ylab="beta1")
+```
+We now perform simulation from the posterior by `simcontour` of `LearnBayes`. 
+```{r}
+s = simcontour(logisticpost, c(-2,3,-1,11),data.new,1000) # sample from the grid c(-2,3,-1,11)
+mycontour(logisticpost,c(-2,3,-1,11), data.new, xlab="beta0",ylab="beta1")
+points(s)
+```
+Let's see the empirical density of $\beta_1$ which is the *slope* w.r.t. the dose level. We observe that almost all mass of $\beta_1$ is on positive, indicating the significant effect of the dose. i.e. the dose increases the risk of death.
+```{r}
+plot(density(s$y),xlab = "beta1",main="")
+```
+
+**LD-50:** What is the value dose such that the prob of death is 0.5. The value is $\theta = -\beta_0/\beta_1$. One can compute a simulated density from the observation of ($\beta_0,\beta_1$).
+```{r}
+theta = - s$x/s$y
+hist(theta,xlab = "LD-50",breaks = 20)
+```
+It's more difficult to estimate than $\beta_1$. The 95% credible interval is 
+```{r}
+quantile(theta,c(.025,0.975))
+```
+
+
+### 4.5 Comparing two proportions
+Howard (1998) https://projecteuclid.org/euclid.ss/1028905830 considers the general problem of comparing the proportions from 2 independent binomial distributions. Suppose we observe:  
+- $y_1$ from binomial($n_1,p_1$)
+- $y_2$ from binomial($n_2,p_2$)  
+We want to know wheather the data favors the hyposthesis $H_1:p_1 > p_2$ or the hyposthesis $H_2:p_1 < p_2$. 
+
+Naturally, the prior on $p_i$ should be dependent (not independent), hence we will use Howard's "dependent prior". 
+
+Suppose we have a data of $p_1=0.8$. This knowledge can influence our prior belief of $p_2$, namely $p_2$ is close to 0.8.  Howard's special form of dependent prior is expressed as follows. We first transform the probs to logits.
+$$
+\theta_1 = \log \frac{p_1}{1-p_1},\theta_2 = \log \frac{p_2}{1-p_2}
+$$
+Given $\theta_1$ we assume that $\theta_2$ follows a normal distribution with mean $\theta_1$ and std $\sigma$. By generalizing the idea, the proposed prior is given by
+$$
+g(p_1,p_2) \propto e^{-u^2/2}p_1^{\alpha-1}(1-p_1)^{\beta-1}p_2^{\gamma-1}(1-p_2)^{\delta-1},0< p_i < 1,
+$$
+where $u = \frac{1}{\sigma}(\theta_1-\theta2)$.  This can be interpreted as the mixture of the $\theta_i$ part, i.e. mean $\theta_1$ and std $\sigma$ -> $\exp(-\frac{1}{2}(\frac{\theta_1-\theta2}{\sigma})^2)$, and Beta prior part:  $p_1^{\alpha-1}(1-p_1)^{\beta-1}p_2^{\gamma-1}(1-p_2)^{\delta-1}$.
+
+Params are
+- ($\alpha,\beta,\gamma,\delta$): beliefs about the location of $p_i$ hence if it is 0, then Haldane improper prior (observe no data).
+- $\sigma$: dependence between the two proportions.
+
+We here set 1 for $\alpha,\beta,\gamma,\delta$ and $\sigma=2,1,0.5,0.25$. We observe that the smaller $\sigma$ implies the larger dependence of $p_i$, i.e. the mass of distribution is on diagonal part. `howardprior` anables us to generate Howard's prior, i.e. computes the logarithm of a dependent prior on two proportions.
+```{r}
+sigma = c(2,1,0.5,0.25)
+plo = 0.0001; phi = 0.9999 # set the limit for the value of p_i
+par(mfrow=c(2,2)) # supblot spacing
+for (i in 1:4){
+  mycontour(howardprior,c(plo,phi,plo,phi),c(1,1,1,1,sigma[i]),
+            main=paste("simga=",as.character(sigma[i])),
+            xlab="p1",ylab="p2")
+}
+```
+
+Suppose we observe $y_i$ counts, the likelihood is given by
+$$
+L(p_1,p_2) \propto p_1^{y_1}(1-p_1)^{n_1-y_1}p_2^{y_2}(1-p_2)^{n_2-y_2}
+$$
+Hence the params of posterior is given by updating the prior: 
+$$
+(\alpha + y_1, \beta + n_1-y_1, \gamma + y_2, \delta+n_2-y_2, \sigma)
+$$
+
+We test this approach on Pearson's data (1947) 
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+library(pander)
+tabl <- "
+|           | Successes   | Failures    | Total |
+|-----------|:-----------:|:-----------:|------:|
+| Sample 1  | 3           | 15          | 18    |
+| Sample 2  | 7           | 5           | 12    |
+| Total     | 10          | 20          | 30    |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+Since the posterior has the same functional form of the prior, we can use `howardprior` as before.
+```{r}
+sigma = c(2,1,0.5,0.25)
+plo = 0.0001; phi = 0.9999 # set the limit for the value of p_i
+par(mfrow=c(2,2)) # supblot spacing
+for (i in 1:4){
+  mycontour(howardprior,c(plo,phi,plo,phi),c(1+3,1+15,1+7,1+5,sigma[i]),
+            main=paste("simga=",as.character(sigma[i])),
+            xlab="p1",ylab="p2")
+  lines(c(0,1),c(0,1))
+}
+```
+
+We now can test the hypothesis: $H_1: p_1>p_2$ simply by computing the post prob of this region of the param space. As always, we first generate samples from the post. Then count the case where $p_1>p_2$. 
+```{r}
+prop = numeric(4)
+for(i in 1:4){
+  s = simcontour(howardprior,c(plo,phi,plo,phi),
+                 c(1+3,1+15,1+7,1+5,sigma[i]),
+                 1000)  # generate 1000 samples
+  prop[i] = sum(s$x>s$y)/1000  # proportion of p_1 > p_2 
+}
+cbind(sigma,prop)
+```
+We observe that *this post probability is sensitive to the prior belief about the dependence between the two proportions*. (High dependence (or low variance) implies high prob of winning $p_1$)
+

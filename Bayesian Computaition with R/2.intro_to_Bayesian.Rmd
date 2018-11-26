@@ -1,0 +1,263 @@
+---
+title: "2 Introduction to Bayesian Thinking"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+===================================================
+
+I ll try to use the notebook for "Bayesian Computation with R"
+
+## 2. Introduction to Bayesian Thinking
+Basics of Bayesian inferential approach.
+
+```{r}
+library("LearnBayes")
+```
+
+Problem: what is % of collage students in America get at least 8h sleep?
+-> $p$: the %, we want to learn p!!
+
+Decide the prior of 'p' -> she decided $p = 0.3$ but $p \in [0, .5]$ is plausible. 
+
+A sample of 27 students are taken: 11 had over 8h sleep.
+What she wants to know
+
+- Estimating $p$ after the observation
+- Num of students that take at least 8h sleep if a new 20 sample is taken
+
+$g(p)$: distribution of $p$. Then the likelihood is
+
+$$
+L(p) \propto p^s(1-p)^f
+$$
+where $s$ is the number of success (8h sleep) while $f$ is the failure.
+From Bayes' rule, the posterior is 
+$$
+g(p|\text{data}) \propto g(p) L(p)
+$$
+
+See the prior distribution
+```{r}
+p=seq(.05, .95, by = 0.1) # possible val for $p$
+prior = c(1, 5.2, 8, 7.2, 4.6, 2.1, 0.7, 0.1, 0.0, 0.0) # prior to the p
+prior = prior/sum(prior) # conver to the prob
+plot(p, prior, type="h", ylab = "Prior Prob.")
+```
+
+```{r}
+data = c(11,16)  # num of success and failure 
+post = pdisc(p, prior = prior, data = data)  # compute posterior from LearnBayes
+round(cbind(p, prior, post), 2)
+```
+```{r}
+library(lattice)  # for plotting nicely
+PRIOR = data.frame("prior",p,prior)
+POST =  data.frame("post",p,post)
+names(PRIOR) = c("Type", "P", "Probability")
+names(POST) = c("Type", "P", "Probability")
+data = rbind(PRIOR,POST)
+xyplot(Probability~P|Type, data = data, layout=c(1,2), type="h", lwd=3,col="black")
+
+```
+
+### 2.4 Using a Bata prior
+
+She thinks:
+
+- $p$ can be larger or smaller than .3 equally likely  (50% quantile is 0.3)
+- 90% confindent that $p \leq 0.5$ (90% quantile is 0.5)
+
+Express by the beta dist.
+```{r}
+quantile1= list(p=.5, x=.3)
+quantile2 = list(p=.9, x=.5)
+beta.select(quantile1, quantile2) # select the beta dist with the quantiles
+```
+We know that $a = 3.26, b = 7.19$. After observing data, the posterior will be
+$$
+g(p|\text{data}) \propto p^{a+s-1}(1-p)^{b+f-1}
+$$
+Since prior, likelihood, and posterior are beta family, 
+```{r}
+a = 3.26
+b = 7.19
+s = 11
+f = 16
+curve(dbeta(x, a+s, b+f), from=0, to=1, xlab = "p", ylab = "Density",lty=1,lwd=4)  # posterior
+curve(dbeta(x, s+1, f+1), add=TRUE,lty=2,lwd=4) # likelihood
+curve(dbeta(x, a, b), add=TRUE,lty=3,lwd=4)  # prior
+legend(.7,4,c("Prior","Likelihood","Posterior"),lty=c(3,2,1),lwd=c(3,3,3))
+```
+
+**Question** *Is it likely that $p \leq 0.5$ ?*
+```{r}
+1-pbeta(0.5, a+s, b+f)
+```
+-> Very likely!
+
+**Question** *What is 90% credible interval for $p$*
+```{r}
+qbeta(c(0.05,0.95), a+s, b+f)
+```
+
+#### Do the same things by a simulation
+```{r}
+ps = rbeta(1000, a+s, b+f)  # generate 1000 samples from the posterior
+hist(ps, xlab = "p", main = "")
+```
+
+```{r}
+sum(ps >= 0.5)/1000  # probabiltity of p is larger than 0.5
+quantile(ps,c(0.05,0.95))  # quantile of 5% and 95%
+```
+Results are similar to the theoretical ones.
+
+### 2.5 Using a Histogram Prior
+
+Better to work with more general prior -> histogram.
+
+**"Brute-force" method for summarizing posterior $g(p)$**
+
+- define grid of $p$
+- compute likelihood and the prior on the gird
+- make them probability distributions (normalization)
+- take random sample (approx sample from the posterior)
+
+She wants to make a grid as:
+$$
+(0, 0.1),(0.1, 0.2), \ldots, (0.9, 1)  
+$$
+and assign prob for each interval.
+
+```{r}
+midpt = seq(0.05, 0.95, by=0.1)  # mid value for each int
+prior = c(1, 5.2, 8, 7.2, 4.6, 2.1, 0.7, 0.1, 0.0, 0.0) # prior to the p ("importance")
+prior = prior/sum(prior) # conver to the prob
+curve(histprior(x, midpts = midpt, prior), from=0, to=1, ylab = "Prior Density", ylim =c(0,.3))  # step function of the prior
+```
+
+Compute the posterior
+```{r}
+p = seq(0,1, length=500)
+post = histprior(p, midpt, prior) * dbeta(p, s+1, f+1) # post = prior*likelihood
+post = post/sum(post)  # normalize
+plot(p,post, type="l",xlab = "p", ylab = "Posterior density")
+```
+
+Finally, taking samples from the posterior
+```{r}
+ps = sample(p, replace = TRUE, prob=post)  # replace=TRUE allows duplication
+hist(ps, xlab="p", ylab = "Posterior density")
+```
+
+### 2.6 Prediction
+
+**Question** *Number of heavy sleepers $\tilde{y}$ in a new sample of $m=20$ students?*
+
+The predictive density of $\tilde{y}$ is gven by:
+$$
+f(\tilde{y}) = \int f(\tilde{y}|p)g(p)dp
+$$
+
+If $g$ is prior, $f$ is *prior predictive density*, whereas if $g$ is posterior, $f$ is  *posterior predictive density*. 
+
+Suppose
+- $\{p_i\}$: possible val of the proportion $p$ w.p. $\{g(p_i)\}$
+- $f_B(y|n,p)$: Binomial density given sample size $n$ and proportion $p$, ie:
+$$
+f_B(y|n,p) = {n\choose y} p^y(1-y)^{n-y}, y = 0,\ldots,n.
+$$
+Then, the predictive density is:
+$$
+f(\tilde{y}) = \sum f_B(\tilde{y}|m,p_i)g(p_i)
+$$
+`pdiscp` in `LearnBayes`: useful to compute the predictive probabilities.
+```{r}
+p = seq(0.05,0.95, by = .1)
+prior = c(1, 5.2, 8, 7.2, 4.6, 2.1, 0.7, 0.1, 0.0, 0.0) # prior to the p ("importance")
+prior = prior/sum(prior) # conver to the prob
+m = 20; ys = 0:20 # sample size and the possible value of y
+pred = pdiscp(p, prior, m, ys) # prior predictive density
+round(cbind(0:20, pred),3)  # predicted prob for each possible y
+```
+Observe that the most likely to see $\tilde y = 5 , 6, 7$.
+
+If we use Beta prior, we can copmute the predictive density analitically.
+Suppose one make the prior with $beta(a,b)$, then
+$$
+f(\tilde{y})  = \int f_B(\tilde{y}|m,p)g(p)dp 
+ =  {n\choose y} \frac{B(a+\tilde y, b+m - \tilde y)}{B(a,b)}, \tilde y = 0,\ldots,m,
+$$
+
+`pbetap` can compute the predictive probability with beta distribution.
+```{r}
+ab = c(3.26, 7.19)  # reuse the previous result of her belief
+m = 20; ys = 0:20
+pred_beta = pbetap(ab, m, ys) # predictive prob 
+round(cbind(0:20, pred_beta),3)  # predicted prob for each possible y
+```
+Observe that the most likely to see $\tilde y = 5 , 6, 7$ again! but different values
+```{r}
+plot(ys, pred, type="l",xlab = "ys", ylab = "Prior predicteve probability",lty=1, col="red")
+lines(ys, pred_beta, type="l", lty=2,col="blue")
+legend("topright",c("Histogram","Beta"), col= c("red", "blue"), lty=c(1,2 ))
+```
+
+Compute the predictive density form *any* prior -> **simulation**.
+Here is the step:
+
+- simulate $p^*$ from $g(p)$
+- simulate $\tilde y$ from the binomial $f_B(\tilde y|p^*)$
+
+We again use the beta prior with (3.26, 7.19) and try 1000 experiments
+```{r}
+p = rbeta(1000, 3.26, 7.19)
+y = rbinom(1000, 20, p) # take sample of \tilde y with the value of p
+table(y) # see the resuling samples
+```
+
+```{r}
+freq = table(y) # save the frequency
+ys = as.integer(names(freq))  # obtain the indexin values of table (observation of y)
+predprob = freq/sum(freq)  # make them prob (normalize)
+plot(ys, predprob, type="h", xlab = "y", ylab = "Predictive Probability")
+```
+
+`discint`: summarize the discrete predictive distribution by an interval that covers at least $x$%. Here we summarize for 90%.
+
+```{r}
+dist = cbind(ys, predprob)
+rownames(dist) <- NULL
+dist
+```
+
+Output of `discint` is
+
+- prob: exact covering prob
+- set: credible set
+```{r}
+covprob = 0.9 # covering prob
+discint(dist,covprob)
+```
+
+
+**Observation**
+
+Here we see that $\tilde y$ can fall into {1, 2,  3,  4,  5,  6,  7,  8,  9, 10, 11} with prob 0.901. In other words, let the prop of long sleepers $\tilde y/20$, then the prob of this sample prop fall into $[1/20, 11/20]$ is 90.1%. 
+The interval is much larger than population proportion $p$.  Because the prediction of future sample proportion contains two uncertainties: population proportion $p$ and the binomial uncertainty for $\tilde y$.  
+
+
