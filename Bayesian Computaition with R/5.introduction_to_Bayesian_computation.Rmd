@@ -1,5 +1,5 @@
 ---
-title: "4. Multiparameter Models"
+title: "5. Introduction to Bayesian Computation"
 output: html_notebook
 ---
 
@@ -289,7 +289,108 @@ est = mean(p^2)
 se = sd(p^2)/sqrt(1000)
 c(est,se)
 ```
-Then, the Monte Carlo estimate at $\mathbb{E}[p|data]$ is 0.148 with se of 0.002.
+Then, the Monte Carlo estimate at $\mathbb{E}[p|data]$ is 0.150 with se of 0.002.
 
 
 ### 5.8 Rejection Sampling
+If we have a familiar functional form of posterior, we can simulate by an origial `R` function. However, in most of the cases, that is not ture (e.g. the beta-binomial example). A general-purpose algorithm for simulating random draws from a given distribution is **rejection sampling**.
+
+Suppose we want to produce an independent sample from a posterior density $g(\theta|y)$ where the normalizing constant may not be known.   
+**Step 1**: find another density $p(\theta)$ s.t.:  
+
+- Easy to simulate from $p$.
+- $p$ resembles $g$ in terms of location and spread.
+- For all $\theta$ and a constant $c$, $g(\theta|y) \leq cp(\theta)$.
+
+Suppose we now have $p$, then the rejection sampling technique is as follows:
+
+1. Simulate $\theta$ from $p$ and a uniform random $u$ from  $U(0,1)$ independently.
+2. If $u \leq g(\theta|y)/(cp(\theta))$ then accept $\theta$; otherwise reject it.
+3. Repeat 1 and 2 until we get sufficent amount of accepted $\theta$.
+
+As can be seen, in step 2, the *acceptance rate* of the algorithm is given by $g(\theta|y)/(cp(\theta))$, hence the higher the rate, the more efficient algorithm (i.e. $p$ and $g$ is similar). 
+
+We consider using the technique for **beta-binamial** example where $(\text{logit}(\eta),\log K)$. One choice for $p$ might be a bivariate normal density with mean and variance given as outputs of the function `laplace`. Although this density does resemble the post but the ratio likely would not be bounded since the normal density has relatively sharp tails. A better choice is a *multivariate t* with mean and scale matrix chosen to match the post and a small degrees of freedom (to be heavy tails).  
+
+In Section 5.5 we applied the Laplace method to find the post mean and cov matrix of $\theta=(\text{logit}(\eta),\log K)$. If the output of `laplace` is `fit` then `fit$mode` and `fit$var` are mode and covariance matrix. Thus, we set the function $p$ as a multivariate t with location `fit$mode` and scale  `2 fit$var` and 4 degrees of freedom. This choice is valid since it satisfies the 3 requests. But we must find $c$ s.t.
+$$
+g(\theta|y) \leq c p(\theta), \forall \theta, 
+$$
+or equivalently, by setting $d=\log c$
+$$
+\log ( g(\theta|y) ) - \log(p(\theta)) \leq d ,\forall \theta.
+$$
+Hence we want to *maximize $\log ( g(\theta|y) ) - \log(p(\theta))$* over all $\theta$. We here define `betabinT` to compute $d$. 
+```{r}
+betabinT = function(theta, datapar){
+  data = datapar$data  # data
+  tpar = datapar$par # params for t density
+  d = betabinexch(theta, data) - dmt(theta,mean = c(tpar$m),
+                                     S=tpar$var,df=tpar$df,log=TRUE) # compute the d
+  # dmt: Computes the density of a multivariate t distribution
+  # mean, S = cov matrix, df = degrees of freedom
+  return(d) 
+}
+```
+Also define the parameters:
+```{r}
+tpar = list(m=fit$mode, var=2*fit$var, df = 4)
+datapar = list(data=cancermortality, par=tpar)
+```
+The function `laplace` finds the mode (i.e. the maximum) of this function.
+```{r}
+start=c(-6.9, 12.4)
+fit1 = laplace(betabinT,start,datapar)
+fit1$mode
+```
+We find the maximum value $d$ occurs at the value $\theta = (-6.889,12.422)$.  The desired value $d$ can be obtanied by
+```{r}
+betabinT(fit1$mode, datapar)
+```
+We now apply the rejection sampling. ()
+```{r}
+n = 10000 # number of possible sampling
+dmax = betabinT(fit1$mode, datapar); # dmax is obtained above = -569.2829
+theta = rmt(n, mean=c(tpar$m), S=tpar$var,df=tpar$df)  # step1: generate \theta samples
+lf = c(1:dim(theta)[1])
+for(j in 1:dim(theta)[1]) lf[j]=betabinexch(theta[j,],cancermortality) # compute log(g(\theta|y))
+lg = dmt(theta,mean=c(tpar$m), S=tpar$var,df=tpar$df, log=T) # copute log p(theta)
+prob=exp(lf-lg-dmax)  # acceptance ratio
+theta = theta[runif(n) < prob,] # just pick accepted theta
+dim(theta)
+```
+We see that 2834/10000 = 0.28 is our acceptance ratio.We can do the same thing as follows:
+```{r}
+theta1 = rejectsampling(betabinexch, tpar, -569.2829, 10000, cancermortality)
+dim(theta1)
+```
+
+We plot the result. As expected most of the points falls inside of the contour.
+```{r}
+mycontour(betabinexch, c(-8,-4.5,3,17),cancermortality,
+          xlab="logit eta", ylab = "log K")
+points(theta[,1],theta[,2])
+```
+
+### 5.9 Importance Sampling
+Suppose we want to solve a problem of *computing an integral in Bayesian inference*. Since the normalizing const is not known in many cases, the post mean of the function $h(\theta)$ will be given by the ratio of integrals:
+$$
+E[h(\theta)|y] = \frac{\int h(\theta)g(\theta|y)f(y|\theta)d\theta}{\int g(\theta)f(y|\theta)d\theta}
+$$
+If we were able to simulate $\{\theta^j\}$ directly, then we could approx this expected value but if not the case, suppose instead that we can make a density $p$ which we can simulate and that approx the post $g$. 
+$$
+E[h(\theta)|y] = \frac{\int h(\theta)g(\theta|y)f(y|\theta)d\theta}{\int g(\theta)f(y|\theta)d\theta}\\
+= \frac{\int h(\theta) \frac{g(\theta|y)f(y|\theta)}{p(\theta)}p(\theta) d\theta}{\int \frac{g(\theta|y)f(y|\theta)}{p(\theta)}p(\theta)d\theta}\\
+= \frac{\int h(\theta) w(\theta)p(\theta) d\theta}{\int w(\theta)p(\theta)d\theta}
+$$
+where $w(\theta) = \frac{g(\theta|y)f(y|\theta)}{p(\theta)}$ is the *weight function*. If we have samples $\{\theta^j\}$ from $p$, then the importance sampling esitmate of the post mean is:
+$$
+\bar h_{IS} = \frac{\sum_{j}h(\theta^j)w(\theta^j)}{\sum_jw(\theta^j)}
+$$
+
+This is called *importance sampling estimate* because we are sampling values of $\theta$ that are important for the integral. The simulation standard error is estimated by:
+$$
+se_{\bar h_{IS}} = \frac{\sqrt{\sum_{j}((h(\theta^j)-\bar h_{IS})w(\theta^j))^2}}{\sum_jw(\theta^j)}
+$$
+
+
