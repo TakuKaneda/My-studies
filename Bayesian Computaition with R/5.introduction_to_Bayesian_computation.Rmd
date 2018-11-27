@@ -104,6 +104,7 @@ attach(cancermortality)
 kable(cancermortality)%>%
 kable_styling(full_width = F)
 ```
+
 A first model would be {$y_j$} represents indepedent binomial samples with sample size {$n_j$} and a fixed prob $p$. But one notices that the data is *overdispersed* in the sense that {$y_j$} display more variation than that of binomial model. Thus we apply **beta-binomial** model that assiuming $y_j$ is from a binomial distribution with a parameter $p$ that has a beta distribution with mean $\eta$ and precision $K$  (https://en.wikipedia.org/wiki/Beta-binomial_distribution).  
 
 $$
@@ -139,6 +140,7 @@ See a contour plot of the posterior.
 ```{r}
 mycontour(betabinexch0,c(.0001,.003,1,20000),cancermortality,xlab="eta",ylab="K")
 ```
+
 We observe the **strong skewness** in the density especially for $K$. 
 
 Following the guide of Section 5.3, we transform the params to the real-line.
@@ -181,6 +183,7 @@ Plot the contour.
 ```{r}
 mycontour(betabinexch, c(-8,-4.5, 3, 16.5), cancermortality, xlab="logit eta", ylab = "log K")
 ```
+
 Observing that the density has an unusual shape, the strong skewness has been reduced and distribution is more amenable to the computational methods in the followings. 
 
 
@@ -262,6 +265,7 @@ The result shows that the post mode to be (-6.82,7.58). From the optput of `lapl
 npar = list(m=fit$mode,v=fit$var)
 mycontour(lbinorm,c(-8,-4.5,3,16.5),npar,xlab="logit eta",ylab="log K")
 ```
+
 We see the big difference between the exact (section 5.4) and approxed normal posteriors. 
 
 One advantage of MN-algorithm is *one obtains quick summaries of the parameters by the multivariate normal approx*. One can constract approx prob interval from diag of the covariance matrix. For instance 90%  prob interval for the params:
@@ -441,6 +445,7 @@ legend("topright", legend = c("Exact (g)","Normal (p)"), lwd=c(3,1))
 curve(betabinexch.cond(x, cancermortality)/I$value/dnorm(x, 8,2), from = 3, to = 16, 
       ylab="Weight",xlab="log K", main = "Weight = g/p")
 ```
+
 Although the normal $p$ resembles the exact post $g$, the post density has a flatter right tail than the proposal $p$ thus the weight function $w$ becomes unbounded for large $\log K$. Thus we now use *t distribution with mean 8, scale 2, and 2 degrees of freedom*. 
 ```{r}
 I = integrate(betabinexch.cond, 3, 16, cancermortality)  # compute the normalization constant
@@ -460,6 +465,7 @@ legend("topright", legend = c("Exact (g)","T(2) (p)"), lwd=c(3,1))
 curve(betabinexch.cond(x, cancermortality)/I$value/(1/2*dt(x-8,df=2)), from = 3, to = 16, 
       ylab="Weight",xlab="log K", main = "Weight = g/p")
 ```
+
 We observe t dist is more attactive.
 
 #### 5.9.2 Using a Multivariate t as a Proposal Density
@@ -521,6 +527,7 @@ par(mfrow = c(1,2))
 hist(theta.s[,1], main = "logit eta")
 hist(theta.s[,2], main = "log K")
 ```
+
 We can do the same thing with the following funcion `sir`
 ```{r}
 theta.s1 = sir(logf = betabinexch, tpar = tpar, n = 10000, data = cancermortality)
