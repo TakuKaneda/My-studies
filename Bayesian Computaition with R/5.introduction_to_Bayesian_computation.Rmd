@@ -1,6 +1,8 @@
 ---
 title: "5. Introduction to Bayesian Computation"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
@@ -102,12 +104,14 @@ attach(cancermortality)
 kable(cancermortality)%>%
 kable_styling(full_width = F)
 ```
-A first model would be {$y_j$} represents indepedent binomial samples with sample size {$n_j$} and a fixed prob $p$. But one notices that the data is *overdispersed* in the sense that {$y_j$} display more variation than that of binomial model. Thus we apply **beta-binomial** model that assiuming $y_j$ is from a binomial distribution with a parameter $p$ that has a beta distribution with mean $\eta$ and precision $K$ (https://en.wikipedia.org/wiki/Beta-binomial_distribution).
+A first model would be {$y_j$} represents indepedent binomial samples with sample size {$n_j$} and a fixed prob $p$. But one notices that the data is *overdispersed* in the sense that {$y_j$} display more variation than that of binomial model. Thus we apply **beta-binomial** model that assiuming $y_j$ is from a binomial distribution with a parameter $p$ that has a beta distribution with mean $\eta$ and precision $K$  (https://en.wikipedia.org/wiki/Beta-binomial_distribution).  
+
 $$
 f(y_j|\mu,K) = {n_j \choose y_j} \frac{B(K\eta+y_j,K(1-\eta)+n_j-y_j)}{B(K\eta,K(1-\eta))}.
- 
 $$
-Note that $K = \alpha + \beta, \eta = \alpha/(\alpha + \beta)$ of Wikipedia definition. Suppose we assign the vague prior:
+
+Note that $ K = \alpha + \beta, \eta = \alpha/(\alpha + \beta)$ of Wikipedia definition. Suppose we assign the vague prior:
+
 $$
 g(\eta,K) \propto \frac{1}{\eta(1-\eta)}\frac{1}{(1+K)^2}.
 $$
@@ -372,7 +376,9 @@ mycontour(betabinexch, c(-8,-4.5,3,17),cancermortality,
 points(theta[,1],theta[,2])
 ```
 
+
 ### 5.9 Importance Sampling
+#### 5.9.1 Introduction
 Suppose we want to solve a problem of *computing an integral in Bayesian inference*. Since the normalizing const is not known in many cases, the post mean of the function $h(\theta)$ will be given by the ratio of integrals:
 $$
 E[h(\theta)|y] = \frac{\int h(\theta)g(\theta|y)f(y|\theta)d\theta}{\int g(\theta)f(y|\theta)d\theta}
@@ -392,5 +398,172 @@ This is called *importance sampling estimate* because we are sampling values of 
 $$
 se_{\bar h_{IS}} = \frac{\sqrt{\sum_{j}((h(\theta^j)-\bar h_{IS})w(\theta^j))^2}}{\sum_jw(\theta^j)}
 $$
+This comes from the Delta method: suppose the variable of ratio $\theta = \frac{E[Y]}{E[X]}$ then the variance of $\hat \theta$ is approximately:
+$$
+Var(\hat \theta) = \frac{1}{K}\frac{\sum_{j=1}^K (Y_j-\hat \theta X_j)^2}{K \bar X^2}
+$$
+where $\bar X$ and $\bar Y$ are the sample means for $X$ and $Y$ and $\hat \theta = \bar Y/\bar X$. Here we have, $X=w$ and $Y = hw$, thus,
+$$
+Var(\bar h_{IS}) = \frac{1}{K}\frac{\sum_{j}[h(\theta^j)w(\theta^j)- \bar h_{IS} w(\theta^j)]^2}{K [\frac{1}{K}\sum_jw(\theta^j)]^2}\\
+= \frac{\sum_{j}[(h(\theta^j)- \bar h_{IS})w(\theta^j) ]^2}{[\sum_jw(\theta^j)]^2}
+$$
 
+The main issue of the importance sampling is to *design a good $p$*. 
+
+Again we cosider the problem of **estiamting the post mean of a function $\theta_2=\log K$ conditional on a value of $\theta_1 = \text{logit} (\eta)$**. The post density of $\theta_2|\theta_1$ is given by:
+$$
+g_1(\theta_2|data,\theta_1) \propto \frac{K}{(1+K)^2}\prod_{j=1}^{20}\frac{B(K\eta+y_j,K(1-\eta)+n_j-y_j)}{B(K\eta,K(1-\eta))}\\
+\iff \log(g_1(\theta_2|data,\theta_1)) \propto \log K - 2\log(1+K) \\+ \sum_{j=1}^{20}[\log (B(K\eta+y_j,K(1-\eta)+n_j-y_j)) - \log(B(K\eta,K(1-\eta)))]
+$$
+where $\eta = \frac{\exp \theta_1}{1+\exp \theta_1}$ and $K = \exp \theta_2$. (See Section 5.4). The following funciton computes the post density conditional on $\theta_1 = -6.819793$.
+```{r}
+betabinexch.cond = function(log.K, data){
+  eta = exp(-6.819793)/(1+exp(-6.819793))
+  K = exp(log.K)
+  y = data[,1]; n = data[,2]; N = length(y)
+  logf = 0*log.K
+  for (j in 1:N){
+    logf = logf + lbeta(K*eta+y[j], K*(1-eta)+n[j]-y[j]) - lbeta(K*eta, K*(1-eta))
+  }
+  val = logf + log.K - 2 * log(1+K)
+  return(exp(val-max(val)))  # retrun the value of density (not log)
+}
+```
+
+To compute the mean of $\log K$, suppose $p$ be normal with mean 8 and std 2. 
+```{r}
+I = integrate(betabinexch.cond, 3, 16, cancermortality)  # compute the normalization constant
+par(mfrow = c(2,1)) # subplot
+curve(betabinexch.cond(x, cancermortality)/I$value, from = 3, to = 16,
+      ylab = "Density", xlab = "log K", lwd = 3, main = "Densities")
+curve(dnorm(x,8,2),add=T)
+legend("topright", legend = c("Exact (g)","Normal (p)"), lwd=c(3,1))
+curve(betabinexch.cond(x, cancermortality)/I$value/dnorm(x, 8,2), from = 3, to = 16, 
+      ylab="Weight",xlab="log K", main = "Weight = g/p")
+```
+Although the normal $p$ resembles the exact post $g$, the post density has a flatter right tail than the proposal $p$ thus the weight function $w$ becomes unbounded for large $\log K$. Thus we now use *t distribution with mean 8, scale 2, and 2 degrees of freedom*. 
+```{r}
+I = integrate(betabinexch.cond, 3, 16, cancermortality)  # compute the normalization constant
+par(mfrow = c(2,2)) # subplot
+# for nomal
+curve(betabinexch.cond(x, cancermortality)/I$value, from = 3, to = 16,
+      ylab = "Density", xlab = "log K", lwd = 3, main = "Densities")
+curve(dnorm(x,8,2),add=T)
+legend("topright", legend = c("Exact (g)","Normal (p)"), lwd=c(3,1))
+curve(betabinexch.cond(x, cancermortality)/I$value/dnorm(x, 8,2), from = 3, to = 16, 
+      ylab="Weight",xlab="log K", main = "Weight = g/p")
+# for t distribution
+curve(betabinexch.cond(x, cancermortality)/I$value, from = 3, to = 16,
+      ylab = "Density", xlab = "log K", lwd = 3, main = "Densities")
+curve(1/2*dt(x-8,df=2),add=TRUE) # t dist with mean 8, scale 2, and 2 degrees of freedom
+legend("topright", legend = c("Exact (g)","T(2) (p)"), lwd=c(3,1))
+curve(betabinexch.cond(x, cancermortality)/I$value/(1/2*dt(x-8,df=2)), from = 3, to = 16, 
+      ylab="Weight",xlab="log K", main = "Weight = g/p")
+```
+We observe t dist is more attactive.
+
+#### 5.9.2 Using a Multivariate t as a Proposal Density
+Here we consider the proposal $p$ as a multivariate t distribution. `impsampling {LearnBayes}` implements importance sampling to compute the posterior mean of a function using a multivariate t proposal density. 
+We here consider the posterior mean of $\log K$, our function $h$ is the second component of $\theta$.
+```{r}
+theta = rmt(n, mean = c(tpar$m), S = tpar$var, df = tpar$df)#sample theta using multi-t dist
+lf = matrix(0,c(dim(theta)[1],1)) 
+for (j in 1:dim(theta)[1]) {lf[j]=betabinexch(theta[j,],cancermortality)} # log g(theta|y): posterior
+H = theta[,2]  # function h
+lp = dmt(theta, mean = c(tpar$m),  S = tpar$var, df = tpar$df, log=T) # log p
+md = max(lf - lp) # compute the max difference
+wt = exp(lf-lp-md) # weight vector: normalize with the max value
+est = sum(wt * H)/sum(wt)
+SEest = sqrt(sum((H - est)^2 * wt^2))/sum(wt)  # se
+cbind(est, SEest)
+```
+We can do the same with `impsampling`:
+```{r}
+tpar = list(m=fit$mode, var=2*fit$var, df = 4)
+myfunc=function(theta){ # funtion h: return the second component
+  return(theta[2])
+}
+s = impsampling(logf = betabinexch, tpar = tpar, h = myfunc, n = 10000, data = cancermortality)
+cbind(s$est, s$se)
+```
+We also check wheather the weight $w$ is bounded. As can be seen, there are no extreme weights.
+```{r}
+hist(wt, main = "Histogram of Weight")
+```
+
+### 5.10 Sampling Importance Resampling
+Sampling importance resampling (SIR) is a *weighted bootstrap procedure*. Suppose we obtain $m$ samples $\{\theta^j\}$ from the proposal density $p$ and compute the weight: $w(\theta^j) = g(\theta^j|y)/p(\theta^j)$. Convert these weights to probability by:
+$$
+p^j = \frac{w(\theta^j)}{\sum_jw(\theta^j)}
+$$
+We can implement this algorithm by using `sampling` of `R` function. As before, we first generate samples $\theta$ from the proposal density $p$. Then we convert the computed weights to be probability.
+```{r}
+tpar = list(m=fit$mode, var=2*fit$var, df = 4)  # params for multi-t dist
+theta = rmt(n = 10000, mean = c(tpar$m), S = tpar$var, df = tpar$df)#sample theta using multi-t dist
+lf = matrix(0,c(dim(theta)[1],1)) 
+for (j in 1:dim(theta)[1]) {lf[j]=betabinexch(theta[j,],cancermortality)} # log g(theta|y): posterior
+lp = dmt(theta, mean = c(tpar$m),  S = tpar$var, df = tpar$df, log=T) # log p
+md = max(lf - lp) # compute the max difference
+wt = exp(lf-lp-md) # weight vector: normalize with the max value
+
+# convert to the probability
+probs = wt/sum(wt)
+```
+Obtain samples `theta.s` from the newly defined probaility `probs` among `theta`:
+```{r}
+indices = sample(1:n, size = n, prob = probs, replace = T) # obtain index of theta
+theta.s = theta[indices,] # obtained values
+cbind(mean(theta.s[,1]),mean(theta.s[,2])) # mean of theta
+```
+Histogram of `theta.s`.
+```{r}
+par(mfrow = c(1,2))
+hist(theta.s[,1], main = "logit eta")
+hist(theta.s[,2], main = "log K")
+```
+We can do the same thing with the following funcion `sir`
+```{r}
+theta.s1 = sir(logf = betabinexch, tpar = tpar, n = 10000, data = cancermortality)
+```
+
+This algorithm is useful for converting simulated draws from one prob to a second prob. To see this, we here perform a **Bayesian sensitivity analysis w.r.t. the individual observations in the dataset**: we want to see the leave-one-out posterior $g(\theta|y_{(-i)})$ where we do inference without data $y_i$.
+Let $\{\theta^j\}$ is a simulated sample from the full data, then sampling from $g(\theta|y_{(-i)})$  can be obtained by resampling where the sampling prob is prop to the weights:
+$$
+w(\theta) = \frac{g(\theta|y_{(-i)})}{g(\theta|y)} = \frac{1}{f(y_i|\theta)}\\
+= \frac{B(K\eta,K(1-\eta))}{B(K\eta+y_j,K(1-\eta)+n_j-y_j)}
+$$
+Suppose we want to know the 5%, 50% and 95% percentile of the log precision $\log K$, and we have already simulated the sample from full data set `theta.s`.
+```{r}
+n = cancermortality$n; y = cancermortality$y; N = length(y)
+summary=quantile(theta.s[,2],c(.05,.5,.95))  # quantiles with the full data
+summary.obs=array(0,c(N,3))  # quantiles for leave-one-out data
+
+eta = exp(theta.s[,1])/(1+exp(theta.s[,1])) ; K=exp(theta.s[,2]); 
+m = length(K) # number of candidate theta
+for (i in 1:N){
+  weight = exp(lbeta(K*eta, K*(1-eta))
+               -lbeta(K*eta+y[i], K*(1-eta)+n[i]-y[i]))
+  probs = weight/sum(weight) # convert to probabilties
+  indices = sample(1:m, size = m, prob = probs, replace = T) # resampling
+  theta.ss = theta.s[indices,]  
+  summary.obs[i,] = quantile(theta.ss[,2], c(.05,.5,.95))  # quantiles
+}
+```
+Or we can do the same thing with `bayes.influence`:
+```{r}
+S = bayes.influence(theta = theta.s, data = cancermortality)
+```
+Plot the result.
+```{r}
+plot(c(0,0,0), summary, type="b", lwd = 3, xlim=c(-1,21),
+     ylim = c(5,11), xlab = "Observation removed", ylab = "log K 90%quantile")
+for(i in 1:N){
+  lines(c(i,i,i), summary.obs[i,], type="b")
+}
+```
+
+Here we observe the following:
+
+- If data 15: (54,53637) is removed, then the precision $K$ decreases. It is reasonable since this data has a very large number of samples compared to the others.
+- If data 10 or 19 is removed, then the precision $K$ increases. This is because the mortality rate of these data is relatively high compared to the others. 
 
