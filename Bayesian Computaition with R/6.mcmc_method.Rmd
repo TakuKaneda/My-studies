@@ -1,0 +1,185 @@
+---
+title: "6. Markov Chain Monte Carlo Methods"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+### Import the library
+```{r}
+library(LearnBayes) # package for the book
+library(kableExtra) # for display table in HTML format
+```
+
+## 6.1 Introduction
+In Chapter 5 we have seen some sampling techniques for simulation in Bayesian inference, e.g. sampling from the posterior. However, all of them (i.e. rejection sampling, impotance sampling and SIR algorithm) require a **suitable proposal density $p$**, and this choice can be difficult. 
+
+In this chapter, we introduce Markov Chain Monte Carlo (MCMC) algorithms in summarizing posterior distribution. MCMC is very attractive because:
+
+- easy to to set up
+- easy to program
+- requires relatively lttile prior info
+
+In the following sections we see:
+
+- 6.2: Simple random walk
+- 6.3: Two variants of the Metropolis-Hastings algorithms
+- 6.4: Gibbs sampling
+
+## 6.2 Introduction to Discrete Markov Chains
+Consider the following random walk problem. 
+
+- a person takes a value in [1,...,6]
+- if she is in interiors, the probabilities of stay, or move (to left or right) are equal
+- if she is in edges, the probabilities stay or move to adjecent number are equal
+
+This is a simple example of a discrete Markov chain. The transition matrix $P$ is given by:
+$$
+P=\begin{bmatrix}
+.5 & .5 & 0 & 0 & 0 & 0 \\
+.25 & .5 & .25 & 0 & 0 & 0 \\
+ 0 & .25 & .5 & .25 & 0 & 0 \\
+ 0 & 0 & .25 & .5 & .25 & 0 \\
+ 0 & 0 & 0 & .25 & .5 & .25 \\
+ 0 & 0 & 0 & 0 & .5 & .5 
+\end{bmatrix}
+$$
+
+Here are some properties of Markov chain:
+
+- *irreducible*: possible to go from any state to any state in one or more steps
+- *periodic*: given a perticular state, a person can only return to the current state at regular intervals, if not it is said *aperiodic* (the random walk example is this case)
+
+We can represent one's current position by probabilities:
+$$
+p = (p_1,p_2, ..., p_6)
+$$
+where $p_i$ is the prob that the person is in state $i$ now. If $p^j$ is the person's location at step $j$, the next position is given by
+$$
+p^{j+1} = p^j P.
+$$
+Suppose we can find a probability vector $w$ s.t.:
+$$
+w = wP
+$$
+then, $w$ is said to be the *stationaly* distribution. If a Markov chain is irreducible and aperiodic, then it has a *unique* stationaly distribution. (also the limiting distribution of this chain will be $w$)
+
+We test it in our example. 
+```{r}
+# transition matrix P
+P = matrix(c(.5 , .5 , 0 , 0 , 0 , 0 , .25 , .5 , .25 , 0 , 0 , 0 , 0 , .25 , .5 , .25 , 0 , 0 , 0 , 0 , .25 , .5 , .25 , 0 ,0 , 0 , 0 , .25 , .5 , .25 , 0 , 0 , 0 , 0 , .5 , .5), 
+           nrow = 6, ncol = 6, byrow = T) 
+P
+```
+Suppose we start at location 3. 
+```{r}
+s = array(0, c(50000,1))
+s[1] = 3 # initial location
+```
+We simulate 50000 draws from the Markov chain. 
+```{r}
+for (j in 2:50000){
+  s[j] = sample(1:6, size = 1, prob = P[s[j-1],]) # trans prob is  P[s[j-1],] from previous state s[j-1]
+} 
+```
+We summarize the frequencies of visit after 500, 2000, 8000, and 50000 steps.
+```{r}
+m = c(500, 2000, 8000, 50000)
+for (i in 1:length(m)){
+  print(table(s[1:m[i]])/m[i])
+}
+```
+We observe that the relative frequencies of the states are converging to $w=(.1,.2,.2,.2,.2,.1)$, which is the stationaly distribution. We can confirm by checkning $wP$ will be $w$. 
+```{r}
+w = matrix(c(.1,.2,.2,.2,.2,.1), nrow = 1, ncol = 6)
+w%*%P  # %*%: matrix multiplication
+```
+
+
+## 6.2 Metropolis-Hastings Algorithms
+The MCMC essentially is a continuous-valued generalization of the discrete Markov chain set up described in the previous section.  The MCMC sampling sets up and irreducivle, aperiodic Markov chain fro which the *stationary distribution equals the posterior distribution of interest*. The Metropolis-Hastings (MH) algorithm is used to construct such Markov chain. In this section we consider the two types of it: independence chain and random walk chain. 
+
+Suppose we want to simulate from a post $g(\theta|y) = g(\theta)$.  A MH algorithm begins with an inital value $\theta^0$ and specifies a rule for simulating t-th value $\theta^t$ given the (t-1)st value $\theta^{t-1}$. This rule consists of a **proposal density**, which simulates a candidate value $\theta^*$, and the coputation of an **acceptance probability** $P$, which indicates the prob that the candidate value $\theta^*$ will be accepted as the next value or not. Concretely,
+
+- Simulate a candidate value $\theta^*$ from a proposal density $p(\theta^*|\theta^{t-1})$ 
+- Compute the ratio $R$ (see https://en.wikipedia.org/wiki/Metropolis%E2%80%93Hastings_algorithm#Formal_derivation for more details):
+$$
+R = \frac{g(\theta^*)p(\theta^{t-1}|\theta^*)}{g(\theta^{t-1})p(\theta^*|\theta^{t-1})}
+$$
+- Compute the acceptance prob $P= \min\{R,1\}$.
+- Sample a value $\theta^t$ s.t. $\theta^t=\theta^*$ with prob $P$; otherwise $\theta^t=\theta^{t-1}$
+
+Under some conditions on the proposal density $p(\theta^*|\theta^{t-1}$, the simulated draws $\theta_1,\theta_2,...$ will **converge to a r.v. that is distributed according to $g(\theta)$.**
+
+*More on the acceptance rate*: We want to find a probability $p$ such that:
+$$
+g(x)p(y|x) = g(y)p(x|y)
+$$
+where left = prob(getting y from x) and right = prob(getting x from y). We call this as *reversibility condition*. However, most of the cases we have:
+$$
+g(x)q(y|x) > g(y)q(x|y)
+$$
+or the opposite ($<$). It says "getting y from x is too often while getting x from y is too rare". Hence we want to somehow *correct* this condition by introducing an acceptance rate $A(x, y)<1$. We can see $A(x, y)<1$ as *probability of move*. The transition from x to y is given by
+$$
+p_{HM}(y|x) = A(x, y)q(y|x)
+$$
+where $A(x, y)<1$ is not defined yet. From the above inequality, we should set $A(y, x)=1$, i.e. transition from y to x must occures more. On the other hand, the prob of move from x to y should satisfy the reversibility condition for $p_{HM}$, hence,
+$$
+\begin{aligned}
+g(x) A(x, y)q(y|x) &=  g(y)A(y, x)q(x|y)\\
+&= g(y)q(x|y)
+\end{aligned}
+$$
+Thus we have:
+$$
+A(x, y) = \begin{cases}\min \{1,\frac{g(y)q(x|y)}{g(x)q(y|x)}  \}, g(x)q(y|x)>0\\
+1, \text{otherwise}
+\end{cases}
+$$
+
+#### Independent case
+If the proposal density $p$ is independent of the current state: 
+$$
+p(\theta^*|\theta^{t-1})  =p(\theta^*)
+$$
+then the algorithm is called an *independence chain*. This can be implemented by `indepmetrop` in `LearnBayes`
+
+#### Symmetric case (random walk)
+If the proposal density $p$ is symmetric density:
+$$
+p(\theta^*|\theta^{t-1})  = h(\theta^*-\theta^{t-1})
+$$
+where $h$ is a  symmetric density about the origin, then this type of *random walk* chain has the ratio $R$ s.t.:
+$$
+R = \frac{g(\theta^*)}{g(\theta^{t-1})}
+$$
+ This can be implemented by `rwmetrop` in `LearnBayes`.
+ 
+ Desireble features of $p$ depends on the choice of MCMC algorithm. We need to be careful about the rate $g/p$ to be bounded as befor. The proposal $p$ is "best" if the acceptance ratio ranges between 25%-45% (but depends on the dimension). 
+ 
+ ### 6.4 Gibbs Sampling
+ Another setting up of MCMCis Gibbs sampling. Suppose our interest parameter is $\theta=(\theta_1,...,\theta_d)$. The joint posterior $[\theta|data]$ may be of high dim and difficult to simulate. Hence we set the following set of $d$ conditional distributions:
+ $$
+ [\theta_1|\theta_2,...,\theta_d,data],\\
+ [\theta_2|\theta_1,\theta_3,...,\theta_d,data],\\
+ ...\\
+ [\theta_d|\theta_1,...,\theta_{d-1},data],\\
+ $$
+ The idea of Gibbs sampling is that we can set up a Markov chain simulation algorithm from the joint posterior by successfully simulating individual params from thee set of $d$ conditional distributions. It is known that *under general conditions, draws from this simulation will converge to the target distirubiton $[\theta|data]$*. 
+ 
+In cases where it is not convenient to sample directly from the conditional dist, one can apply a MH algorithm with a random walk proposal. Suppose $\theta^t_i$ is the current value of $i$th componet of the parameter vector, and let $g(\theta_i)$ be the conditional dist with suppressed dependence of $\theta_{(-i)}$. Then one possible approach of giving a candidate value is:
+$$
+\theta_i^* = \theta_i^t + c_i Z_i
+$$
+where $c_i$ is a scale constant and $Z_i$ is a standard normal r.v.. The next value $\theta_i^{t}$ will be $\theta^*$ with probability $P=\min\{1,g(\theta^*)/g(\theta^{t})\}$; otherwise $\theta_i^{t+1} = \theta_i^{t}$. This process can be implemeted by the `R` function `gibbs` in `LearnBayes`.
+
+
+
