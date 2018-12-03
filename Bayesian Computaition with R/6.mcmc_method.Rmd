@@ -173,13 +173,246 @@ $$
  ...\\
  [\theta_d|\theta_1,...,\theta_{d-1},data],\\
  $$
- The idea of Gibbs sampling is that we can set up a Markov chain simulation algorithm from the joint posterior by successfully simulating individual params from thee set of $d$ conditional distributions. It is known that *under general conditions, draws from this simulation will converge to the target distirubiton $[\theta|data]$*. 
+ The idea of Gibbs sampling is that we can set up a Markov chain simulation algorithm from the joint posterior by successfully simulating individual params from the set of $d$ conditional distributions. It is known that *under general conditions, draws from this simulation will converge to the target distirubiton $[\theta|data]$*. 
  
 In cases where it is not convenient to sample directly from the conditional dist, one can apply a MH algorithm with a random walk proposal. Suppose $\theta^t_i$ is the current value of $i$th componet of the parameter vector, and let $g(\theta_i)$ be the conditional dist with suppressed dependence of $\theta_{(-i)}$. Then one possible approach of giving a candidate value is:
 $$
 \theta_i^* = \theta_i^t + c_i Z_i
 $$
 where $c_i$ is a scale constant and $Z_i$ is a standard normal r.v.. The next value $\theta_i^{t}$ will be $\theta^*$ with probability $P=\min\{1,g(\theta^*)/g(\theta^{t})\}$; otherwise $\theta_i^{t+1} = \theta_i^{t}$. This process can be implemeted by the `R` function `gibbs` in `LearnBayes`.
+
+## 6.5 MCMC Output Analysis 
+Although the theoreis give that the j-th simulation $\theta^j$ converges to a draw from the true posterior if $j$ goes infinity, there is no practical guidance on it. Hence, we need to assess the performance by plotting or computing diagnostic statistics etc..
+
+## 6.7 Learning About a Normal Population from Grouped Data
+The first example: random sample taken from a normal populatino with mean $\mu$ and std $\sigma$, but only observes in "grouped" form. Our problem is about the mean and std of the heights of men from a local college. 
+
+Height interval (in.)/ Frequency
+
+- < 66 / 14
+- [66, 68] / 30
+- [68, 70] / 49
+- [70, 72] / 70
+- [72, 74] / 33
+- < 74 / 15
+
+We observe the unknow bin probs: $p_i,i=1,...,6$. e.g. the heigth is in [66,68] is given by $p_2 = \Phi(68,\mu,\sigma) - \Phi(66,\mu,\sigma)$, where $\Phi(;,\mu,\sigma)$ is the cdf of Normal. The likelihood is given as:
+$$
+\begin{aligned}
+L(\mu,\sigma) & \propto \Phi(66,\mu,\sigma)^{14}(\Phi(68,\mu,\sigma)-\Phi(66,\mu,\sigma))^{30}\\
+& \times  (\Phi(70,\mu,\sigma)-\Phi(68,\mu,\sigma))^{49} \\
+&  \cdots\\
+& \times  (1-\Phi(74,\mu,\sigma))^{15}
+\end{aligned}
+$$
+Suppose $(\mu,\sigma)$ are assigned the usual noniformative prior, then the posterior is proportional to 
+$$
+g(\mu,\sigma) \propto \frac{1}{\sigma}L(\mu,\sigma).
+$$
+To make the params to be real-valued line, $\lambda = \log(\sigma)$, and the posterior of $(\mu,\lambda)$ is given by
+$$
+g(\mu,\lambda) \propto L(\mu, \exp(\lambda)).
+$$
+Here we define a function `groupeddatapost` that computes the log of the post of $(\mu,\lambda)$. 
+```{r}
+groupeddatapost = function(theta,data){ 
+  # theta: (mu, lambda), 
+  # data$int.lo: lower bound, data$int.hi: higher bound, data$f: frequency
+  dj = function(f, int.lo, int.hi, mu, sigma){
+    f * log(pnorm(int.hi, mu, sigma) - pnorm(int.lo, mu, sigma))
+  }
+  mu = theta[1]
+  sigma = exp(theta[2])
+  sum(dj(data$f, data$int.lo, data$int.hi, mu, sigma))
+}
+```
+We define the data
+```{r}
+d = list(int.lo = c(-Inf, seq(66,74, by = 2)),
+         int.hi = c(seq(66,74, by = 2), Inf),
+         f = c(14, 30, 49, 70, 33, 15))
+```
+To decide the *initial point* (to use the function `laplace`), we require a good guess at the location of the post mode. To estimate the mode of $(\mu, \log \sigma)$, we replace the bin to the mid-point. Then, use the sample mean and std of the artificial data.
+```{r}
+y = c(rep(65,14), rep(67,30), rep(69,49), rep(71,70),rep(73,33),rep(75,15))
+mean(y)
+```
+```{r}
+log(sd(y))
+```
+Based on this, we believe that $(\mu, \log \sigma) \approx (70,1)$. We find the posterior by using `laplace`.
+```{r}
+start = c(70,1)
+fit = laplace(groupeddatapost, start, d) #Summarization of a posterior density by the Laplace method
+fit
+```
+Hence the posterior mode of $(\mu, \log \sigma)$ is found to be (70.17,0.97). The associated stds can be computed as:
+```{r}
+modal.sds = sqrt(diag(fit$var)) # sqrt of diag of the covariance matrix
+modal.sds
+```
+We use this result to design a MH random walk algorithm. For the *proposal density* $p$, we use **t-distribution** with the covariance matrix of `laplace` and the scale parameter 2 . We run 10000 iterations of the random walk algorithm starting from `start`. 
+```{r}
+proposal = list(var=fit$var, scale=2)
+fit2 = rwmetrop(groupeddatapost, proposal, start, 10000, d) # run the HM random walk algo
+```
+We monitor the algorithm by the acceptance rate $R$.
+```{r}
+fit2$accept
+```
+We now be able to summarize the params by computing the posterior means and stds.
+```{r}
+post.means = apply(fit2$par,2,mean)
+post.sds = apply(fit2$par,2,sd)
+```
+We can access the accuracy of the model by comparing the result of `laplace` (optimization).
+```{r}
+cbind(post.means, post.sds) # result of MCMC
+```
+```{r}
+cbind(c(fit$mode),modal.sds) # result of laplace (optimization)
+```
+Finally we see the result by plotting.
+```{r}
+mycontour(groupeddatapost, c(69,71,0.6,1.3),data = d,
+          xlab="mu",ylab="log sigma")
+points(fit2$par[5001:10000,1],fit2$par[5001:10000,2]) # plot the last 5000 samples
+```
+
+
+## 6.8 Example of Output Analysis
+In order to perform the output analysis of MCMC algorithm, we use `coda` which will be described in chapter 11. Suppose we rerun the MH rw algorthm for the previous problemw with **poor choices of initial value and proposal density $p$**. We set the inital as (65,1) (instead of (70,1)) and the scale of 0.2 of $p$  (instead of 2).
+```{r}
+start = c(65,1)
+proposal = list(var = fit$var, scale = 0.2)
+```
+We then rerun the algo.
+```{r}
+bayesfit = rwmetrop(groupeddatapost, proposal = proposal, start = start, m = 10000, d)
+bayesfit$accept
+```
+We observe that acceptance rate of 89% which is pretty high. In this example we consider the first 2000 iterations as the burn-in period thus dicard them. 
+```{r}
+library(coda) # for assessing the MCMC result
+library(lattice) # for xyplot
+dimnames(bayesfit$par)[[2]] = c("mu","log sigma")
+xyplot(mcmc(bayesfit$par[-c(1:2000),]),col="black")
+```
+
+We observe that the simulated draws reached the main support of the posterior of $\mu$. However, the sequence appears irregular: it explores  $\mu > 70.5$ for a while which is not relevant. We hence see the strong autocorrelation 
+```{r}
+#par(mfrow=c(2,1))
+autocorr.plot(mcmc(bayesfit$par[-c(1:2000),]),auto.layout = T)
+```
+The autocorrelations are close to 1 in Lag1, and decrease very slowly.
+
+The `summary` of `mcmc` output gives the empirical mean and sd for each param. The `Naive SE` is computed as the draws are fully independent sample ($\sigma_{SE} = \sigma/\sqrt{n}$), hence the value is very small (e.g. 0.002 for $\mu$) . However, `BatchSE` gives the more more accurate estimate. (we assume *a batch of data* is independent)
+```{r}
+ summary(mcmc(bayesfit$par[-c(1:2000),]))
+ batchSE(mcmc(bayesfit$par[-c(1:2000),]), batchSize=50) # batch size = 50
+```
+We compare this result with the previously obtained more accurate one (start point = (70,1), scale of $p$ is 2)
+```{r}
+ summary(mcmc(fit2$par[-c(1:2000),]))
+ batchSE(mcmc(fit2$par[-c(1:2000),]), batchSize=50) # batch size = 50
+```
+We see that `batchSE` are now very small. Also check by plotting. 
+```{r}
+dimnames(fit2$par)[[2]]=c("mu","log sigma")
+xyplot(mcmc(fit2$par[-c(1:2000),]),col="black")  # result of samples
+```
+```{r}
+autocorr.plot(mcmc(fit2$par[-c(1:2000),]),auto.layout = T) # autocorr
+```
+
+The parameters appear more *random noise*. For the autocorrelation, it is near 1 for lag 1 and decreases very rapidly. 
+
+
+## 6.9 Modeling Data with Cauchy Errors
+The second example is to see what happens with **outliers**.
+We here test a Cauchy density (t distribution with a single degree of freedom). 
+
+Suppose we observe data $y_i$ from a Cauchy density of location paramter $\mu$ and scale paramter $\sigma$,
+$$
+f(y|\mu,\sigma) = \frac{1}{\pi \sigma(1+z^2)}
+$$
+where $z = \frac{y-\mu}{\sigma}$. Suppose we use the usual noninformative prior:
+$$
+g(\mu,\sigma) \propto \frac{1}{\sigma}
+$$
+Then, the posterior is given by:
+$$
+\begin{aligned}
+g(\mu,\sigma|data)& \propto g(\mu,\sigma) \prod_{i}f(y_i|\mu,\sigma)\\
+& =  \frac{1}{\sigma} \prod_{i}[\frac{1}{\sigma(1+(\frac{y_i-\mu}{\sigma})^2)}]
+\end{aligned}
+$$
+As always, we replace the variable $\sigma$ by $\lambda = \log(\sigma)$.
+$$
+\begin{aligned}
+g(\mu,\lambda|data) &\propto  \prod_{i}[\frac{1}{e^\lambda(1+(\frac{y-\mu}{e^\lambda})^2)}]\\
+& = \prod_{i}[\frac{e^\lambda}{e^{2\lambda} + (y_i-\mu)^2}]
+\end{aligned}
+$$
+The log of the density is:
+$$
+\log(g(\mu,\lambda|data)) = \sum_i [\lambda - \log(e^{2\lambda} + (y_i-\mu)^2)]
+$$ 
+We define the funtion `cauchyerrorpost_mine` (`LearnBayes` has `cauchyerrorpost`) to compute $\log(g(\mu,\lambda|data))$:
+```{r}
+cauchyerrorpost_mine = function(theta, data){
+  logf = function(theta, data){
+    theta[2] - log(exp(2*theta[2]) + (data - theta[1])^2)
+  }
+  return(sum(logf(theta,data)))
+}
+```
+We apply the model to Darwin's famous dataset: 15 differences of the heights of cross- and self-fertilized plants quoted by Fisher (1960).  The mean is given by 
+```{r}
+data("darwin")
+attach(darwin)
+mean(difference) # mean
+```
+Standard deviation is 
+```{r}
+log(sd(difference))  
+```
+
+**Find the posterior mode** We again use `laplace` to find the posterior mode by setting the initial point of $(\mu,\lambda) = (21.6,3.6)$.
+```{r}
+laplace(cauchyerrorpost_mine, c(21.6,3.6), difference)  # with my function
+```
+```{r}
+laplace(cauchyerrorpost, c(21.6,3.6), difference)  # function of LearnBayes
+```
+
+We see that the mode is given by (24.7,  2.77).  Note that `$int` is the estimate of the log integral.
+
+We can use the result to contruct a seach space of the posterior. We take the mode +/- 4*std as the region.
+```{r}
+c(24.7 - 4*sqrt(34.96), 24.7 + 4*sqrt(34.96))
+```
+```{r}
+c(2.77 - 4*sqrt(0.138), 2.77 + 4*sqrt(0.138))
+```
+After some trails, we decide that $\mu \in [-10, 60], \lambda \in [1,4.5]$ as the bound of `mycontour`.
+```{r}
+mycontour(cauchyerrorpost_mine, c(-10,60,1,4.5),difference,
+          xlab="mu", ylab="log sigma")
+```
+This *exact* density has an interesting shape. We now try to approximate the post by **bivariate normal** by using the result of `laplace`.
+```{r}
+fitlaplace = laplace(cauchyerrorpost, c(21.6,3.6), difference)
+mycontour(lbinorm, c(-10,60,1,4.5), 
+          list(m=fitlaplace$mode,v=fitlaplace$var), 
+          xlab="mu", ylab="log sigma")
+```
+
+One may notice that the normal approximation is not adequate. 
+
+
+
+
 
 
 
