@@ -104,7 +104,7 @@ w%*%P  # %*%: matrix multiplication
 ```
 
 
-## 6.2 Metropolis-Hastings Algorithms
+## 6.3 Metropolis-Hastings Algorithms
 The MCMC essentially is a continuous-valued generalization of the discrete Markov chain set up described in the previous section.  The MCMC sampling sets up and irreducivle, aperiodic Markov chain fro which the *stationary distribution equals the posterior distribution of interest*. The Metropolis-Hastings (MH) algorithm is used to construct such Markov chain. In this section we consider the two types of it: independence chain and random walk chain. 
 
 Suppose we want to simulate from a post $g(\theta|y) = g(\theta)$.  A MH algorithm begins with an inital value $\theta^0$ and specifies a rule for simulating t-th value $\theta^t$ given the (t-1)st value $\theta^{t-1}$. This rule consists of a **proposal density**, which simulates a candidate value $\theta^*$, and the coputation of an **acceptance probability** $P$, which indicates the prob that the candidate value $\theta^*$ will be accepted as the next value or not. Concretely,
@@ -165,7 +165,8 @@ $$
  
  Desireble features of $p$ depends on the choice of MCMC algorithm. We need to be careful about the rate $g/p$ to be bounded as befor. The proposal $p$ is "best" if the acceptance ratio ranges between 25%-45% (but depends on the dimension). 
  
- ### 6.4 Gibbs Sampling
+ 
+ ## 6.4 Gibbs Sampling
  Another setting up of MCMCis Gibbs sampling. Suppose our interest parameter is $\theta=(\theta_1,...,\theta_d)$. The joint posterior $[\theta|data]$ may be of high dim and difficult to simulate. Hence we set the following set of $d$ conditional distributions:
  $$
  [\theta_1|\theta_2,...,\theta_d,data],\\
