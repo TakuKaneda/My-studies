@@ -408,11 +408,216 @@ mycontour(lbinorm, c(-10,60,1,4.5),
           xlab="mu", ylab="log sigma")
 ```
 
-One may notice that the normal approximation is not adequate. 
+One may notice that the normal approximation is not adequate. However, the estimated covariance matrix is useful for setting up MH random-walk chain. We here set the scale as 2.5 and the `start` as (20,3).
+```{r}
+proposal = list(var=fitlaplace$var, scale=2.5)
+start = c(20,3)
+m = 1000 # number of simulation
+s = rwmetrop(cauchyerrorpost, proposal = proposal, start = start, m = m, difference)
+mycontour(cauchyerrorpost, c(-10,60,1,4.5), difference,
+          xlab="mu", ylab="log sigma")  # contour plot
+# scatter plot of the simulation
+points(s$par[,1], s$par[,2])
+```
+
+We then see the empirical density estimation of two approaches.
+```{r}
+start=c(20,3)
+rw = rwmetrop(cauchyerrorpost, proposal = proposal, start = start, m = 50000, difference)
+```
+
+```{r}
+curve(dnorm(x, mean = fitlaplace$mode[1], sd = sqrt(fitlaplace$var[1,1])),from = -20,to = 60, xlab = "mu", ylab = "Posteriror Density", lwd = 2, lty = 2)
+d = density(rw$par[,1])
+#par(new=TRUE)
+lines(d, lwd = 3)
+legend("topleft", legend=c("normal", "random walk"), lty = c(2,1), lwd = c(2,3))
+```
 
 
+**Comparison of Algorithms**
+
+Here we consider the comparison of the following algorithms: 
+
+- "brute-force": simulate $(\mu,\log\sigma)$ by using `simcontour`. 
+- MW random walk: we have did.
+- MH independence chain: the proposal $p$ is independent $p(\theta^*|\theta^{t-1})=p(\theta^*)$.
+- Gibbs sampling with scale (12, 0.75): the scale is aobut 2*sd of `laplace` fit.
+
+```{r}
+library(mvtnorm) # multi-variate noraml
+fitnorm = rmvnorm(50000,mean = fitlaplace$mode, sigma = fitlaplace$var)
+```
+
+```{r}
+# brute-force
+fitgrid = simcontour(cauchyerrorpost, c(-10,60,1,4.5), difference, 50000)
+# MH random-walk
+proposal = list(var=fitlaplace$var, scale = 2.5)
+start = c(20,3)
+fitrw = rwmetrop(cauchyerrorpost, proposal, start, 50000, difference)
+# MH independence
+proposal2 = list(var=fitlaplace$var, mu=t(fitlaplace$mode))
+fitindep = indepmetrop(cauchyerrorpost, proposal2, start, 50000, difference)
+# Gibbs
+fitgibbs = gibbs(cauchyerrorpost,start,50000,c(12,.75),difference)
+```
+
+The simulated draws can be summarized as
+```{r} 
+cbind(quantile(fitrw$par[,1],c(.05,.5,.95)), quantile(fitrw$par[,2],c(.05,.5,.95)))
+```
+```{r}
+cbind(quantile(fitindep$par[,1],c(.05,.5,.95)), quantile(fitindep$par[,2],c(.05,.5,.95)))
+```
+```{r}
+par(mfrow=c(1,2))
+boxplot(fitnorm[,1],fitgrid$x,fitrw$par[,1],fitindep$par[,1],fitgibbs$par[,1],names = c("norm","b-f","r-w","ind","gib"),ylab="mu")
+boxplot(fitnorm[,2],fitgrid$y,fitrw$par[,2],fitindep$par[,2],fitgibbs$par[,2],names = c("norm","b-f","r-w","ind","gib"),ylab="log simga")
+```
+
+We observe that the normal approximation is far from the other methods: thinner tails for $\mu$, and different mean for $\log \sigma$.
+The acceptance rates are:
+```{r}
+cbind(fitrw$accept,fitindep$accept,fitgibbs$accept)
+```
+The independent method has higher acceptance rate.
 
 
+## 6.10 Analysis of the Stanford Heart Transplant Data
+Turnbull et al (1974) describe a number of approaches for analyzing heart transplant data from the Stanford Heart Transplanation Program. One of the gols is to **decide if heart transplanation extends a patient's life**. One of their models, the Pareto Model (section 4.3): assuming that the lifetime $t$ of a patient follow an exponential distribution $f(t|\theta)$ with mean $1/\theta$ where $\theta$ is *mortalityor hazard*, and is assumed to follow a gamma distribution $f(\theta)$, i.e.:
+$$
+f_{non}(t|\theta) = \theta e^{-\theta t}, t \geq 0\\
+f(\theta;\lambda,p) = \frac{\lambda}{\Gamma(p)}(\lambda\theta)^{p-1} e^{-\lambda\theta}
+$$
 
+We also suppose that the transplant group has a similar exponential distribution with mean $1/\tau\theta$. So the risk is given by a constant unknown parameter $\tau>0$.
+$$
+f_{trans}(t|\tau\theta) = \tau\theta e^{-\tau\theta t}, t \geq 0
+$$
+Notations:
 
+- $N$ non-transplant patients, $n$ are died and $N-n$ are alive.
+- $M$ transplant patients, $m$ are died and $M-m$ are alive.
+- $x_i$: actual survival time to death or closing date (for non-transplant group) (in days)
+- $y_j$: time to transplant (for transplant group)
+- $z_j$: days from transplan to death or closing date (for transplant group)
 
+Then, we want to know the unknowm params $(\tau,\lambda,p)$. The likelihood is given by
+$$
+L(\tau,\lambda,p) = \prod_{i=1}^n\frac{p\lambda^p}{(\lambda+x_i)^{p+1}} \prod_{i=n+1}^N\frac{\lambda^p}{(\lambda+x_i)^{p}}\\
+\times \prod_{j=1}^m\frac{\tau p\lambda^p}{(\lambda+y_i+\tau z_j)^{p+1}} \prod_{j=m+1}^M\frac{\lambda^p}{(\lambda+y_i+\tau z_j)^{p}}
+$$
+
+**proof**: The mariginal distribution of lifetime is given by:
+$$
+f(t) = \int f(t|\theta)f(\theta)d\theta\\
+= \int \theta e^{-\theta t} \cdot \frac{\lambda}{\Gamma(p)}(\lambda\theta)^{p-1} e^{-\lambda\theta} d\theta\\
+= \frac{\lambda^p\Gamma(p+1)}{\Gamma(p)(\lambda+t)^{p+1}}\int \frac{\theta^p}{\Gamma(p+1)}(\lambda+t)^{p+1} e^{-(\lambda+t)\theta}d\theta\\
+= \frac{p\lambda^p}{(\lambda+t)^{p+1}}\cdot1
+$$
+
+We here consider the uniform prior hence the posterior is proportional to the likelihood. Also, we transform the parameters by log as always:
+$$
+\theta = (\theta_1,\theta_2,\theta_3) = (\log \tau, \log \lambda, \log p)
+$$
+Then, the post density $\theta$ is given by:
+$$
+g(\theta|data) \propto L(e^\tau,e^\lambda,e^p)\prod_{i=1}^3e^{\theta_i}
+$$
+since $d\tau = e^{\theta_1}d\theta_1$, etc. 
+
+We now try to write a script in `R`.
+```{r}
+# read data
+data("stanfordheart")
+attach(stanfordheart)
+head(stanfordheart)
+```
+
+where `transplant` is the indicator of transplant, and the `state` represents wheather the patient is died 0 or alive 1.  
+The following funciton `transplantpost` computes the log posterior with input $\theta$ `theta` and observation `data`.
+```{r}
+transplantpost = function(theta, data){
+  x = data[,1] # survive time
+  y = data[,3]  # time to transplant
+  ind = data[,2]  # transplantation or not
+  d = data[,4] # died or not
+  # retrieve params
+  tau = exp(theta[1])
+  lambda = exp(theta[2])
+  p = exp(theta[3])
+  # non-transplant group
+  xnt = x[ind==0]
+  dnt = d[ind==0]
+  # transplant group
+  z = x[ind==1]
+  y = y[ind==1]
+  dt = d[ind==1]
+  # log likelihood-non-transplant group 
+  logf = function(xnt, dnt, lambda, p){
+    ((dnt==0)* (p * log(lambda) + log(p) - (p + 1) * log(lambda + xnt)) + 
+    (dnt==1)* p * log(lambda/(lambda + xnt)))
+  }
+  # log likelihood-transplant group
+  logg = function(z,y,tau,lambda,p){
+    ((dt == 0) * (p * log(lambda) + log(p * tau) - (p + 1) * log(lambda + y + tau*z)) + 
+    (dt == 1) * p * log(lambda/(lambda + y + tau*z)))
+  }
+  val = sum(logf(xnt, dnt, lambda, p))+sum(logg(z,y,tau,lambda,p))
+  val = val + theta[1]+theta[2]+theta[3]
+  return(val)
+}
+```
+
+To get the inital starting point, we again use `laplace`. Our ininal guess is (0,3,-1).
+```{r}
+start = c(0,3,-1)
+laplacefit = laplace(transplantpost, start, stanfordheart)
+laplacefit
+```
+
+We use the MH random walk algortithm with proposal variance of $2V$. The acceptance rate is 0.19.
+```{r}
+proposal = list(var = laplacefit$var, scale=2)
+s = rwmetrop(transplantpost, proposal, start, 10000, stanfordheart)
+s$accept
+```
+
+We here see the density of the parameters $\theta$.
+```{r}
+par(mfrow=c(2,2))
+tau = exp(s$par[,1])
+plot(density(tau),main="TAU")
+lambda = exp(s$par[,2])
+plot(density(lambda),main="LAMBDA")
+p = exp(s$par[,3])
+plot(density(p),main="P")
+```
+
+From the figure, we see that $\tau $ has the mass around 1, thus we cannot say that $\tau \neq 1$. This implies that **we cannot say the transpalent makes the risk of death higher or lower.** 
+ The 5, 50 and 95% percentile of the parameters are given by:
+```{r}
+apply(exp(s$par),2,quantile,c(.05,.5,.95))
+```
+
+Recall that the survival curve of a patient is given by 
+$$
+S(t) = P[T>t] = 1 - P[T\leq t] \\
+= 1 - \int_0^t \frac{p\lambda^p}{(\lambda+x)^{p+1}} dx = 1 - ( - \frac{\lambda^p}{(\lambda+t)^{p}}+1) \\
+= \frac{\lambda^p}{(\lambda+t)^{p}}
+$$
+We try to plot the survival curve in this case with 5, 50, 95% quantiles of them.
+```{r}
+t = seq(1,240) # the value (in day) of survival date
+p5 = 0*t; p50 = 0*t; p95 = 0*t
+for (j in 1:length(t)){
+  S = (lambda/(lambda+t[j]))^p  # value of S(t)
+  q = quantile(S, c(.05, .5, 0.95)) # quantiles
+  p5[j] = q[1]; p50[j] = q[2]; p95[j] = q[3]
+}
+plot(t,p50, type = "l", ylim =c(0,1),ylab = "Prob(Survival)",xlab = "Time")
+lines(t, p5, lty = 2)
+lines(t, p95, lty = 2)
+```
+ 
