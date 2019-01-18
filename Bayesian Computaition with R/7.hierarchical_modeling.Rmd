@@ -1,0 +1,192 @@
+---
+title: "7. Hierarchical Modeling"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+### Import the library
+```{r}
+library(LearnBayes) # package for the book
+library(kableExtra) # for display table in HTML format
+```
+
+## 7.1 Introduction
+Summary of an exchangable hierarchical model. 
+
+## 7.2 Three Examples
+We consider the following three problems.
+
+1. Simultaneous estimation of hospital mortality rates
+2. Estimating college grade point averages (Chapter 10)
+3. Estiamting carrer trajectories (Chapter 11)
+
+We here consider to consruct a prior distribution in a *hieratchical* fashion.
+We begin by specifying a data distribution
+$$
+y \sim f(y|\theta)
+$$
+and the prior $\theta$ will be assined with a prior distribution with unkown hyperparameters $\lambda$.
+$$
+\theta \sim g_1(\theta|\lambda)
+$$
+The hyperparameters $\lambda$ in trun will be assigned a distribution
+$$
+\lambda \sim g_2(\lambda)
+$$
+
+One general way of constructing a hierarchical prior is based on the prior belief of *exchangeability*. A set of parameters $\theta = (\theta_1,\ldots,\theta_k)$ is exchangeable if the distribution of $\theta$ is unchanged if the parameter components are permuted. This implies that the belief about $\theta_j$ is the same as $\theta_h$. An exchangeable prior can be constructed by assuming the components are a ramdom sample form $g_1$:
+$$
+\theta_1,\ldots,\theta_k \text{ ramdom sample from } g_1(\theta|\lambda)
+$$
+and the unknown $\lambda$ is given by a known prior at the second stage
+$$
+\lambda \sim g_2(\lambda)
+$$
+
+## 7.3 Individual and Combined Estimates
+**Example** heart transplant mortality data of Chapter 3.
+
+- $e$ (Exposure): expected number of deaths
+- $y_i$: observed number of deaths in hospital $i$
+- $e_i$: observed number of exposures
+
+```{r}
+data(hearttransplants)
+attach(hearttransplants)
+```
+
+A standard approach: $y_i$ follows a Poisson process with mean $e_i\lambda_i$ and the objective is to estimate the mortality per unit exposure $\lambda_i$. The rate $y_i/e_i$ can be viewed as an estimate of the death rate for each hospital. Below, we see the plot of $\log(e)$ vs $y/e$ for all hospitals.
+```{r}
+plot(log(e), y/e, xlim = c(6,9.7),xlab = "log(e)",ylab = "y/e")
+text(log(e), y/e, labels = as.character(y),pos = 4)
+```
+We observe:  
+- The esitmated rates are highly variable especially for small exposures.
+- No deaths are primarily with small exposures.
+
+Suppose we want to estimate the true mortality rate simultaneously for all hospitals $\{\lambda_i\}$. One option is simply to estimate the true rates by using the **individual death rates**.
+$$
+y_1/e_1,...,y_{94}/e_{94}
+$$
+Unfortuately, this approach wont work well, especially for the hospitals with small exposures because we have observed the rate is zero, which may induce underestimation. 
+
+Since the individual death rates can be poor, we consider another approach. Suppose we assume that the **true mortality rates are equal**:
+$$
+\lambda_1 = \cdots = \lambda_{94}
+$$
+Under this assumption, the estimate of the mortality rates is given by
+$$
+\frac{\sum_{j=1}^{94}y_i}{\sum_{j=1}^{94}e_i}
+$$
+The problem for this pooled estimation is that this is based on the strong assumption: true mortality rates are equal for all hospitals. We want to avoid that somehow (because the rates can vary for hospitals). 
+
+The thrid possibility is the **compromise estimate**
+$$
+(1-\mu) \frac{y_i}{e_i} + \mu \frac{\sum_{j=1}^{94}y_i}{\sum_{j=1}^{94}e_i}
+$$
+where the parameter $0<\mu<1$ determines the size of the position. 
+
+## 7.4 Equal Mortality Rates?
+Suppose we now adopt the second approach, the **true mortality rates are equal**. 
+Now, $y_i$ follows Poisson$(e_i\lambda)$, and the common rate $\lambda$ is assined a standard noninformative prior of the form
+$$
+g(\lambda) \propto \frac{1}{\lambda}
+$$
+Then the posterior of $\lambda$ is given by
+$$
+g(\lambda|y) \propto g(\lambda) f(y|\lambda)\\
+= \frac{1}{\lambda} \prod_{j=1}^{94} [\lambda^{y_j}\exp(-e_j\lambda)]\\
+= \lambda^{\sum_{j=1}^{94}y_j -1}\exp(-\sum_{j=1}^{94}e_j \lambda)
+$$
+This can be viewed as a gamma density with paramters $\sum_{j=1}^{94}y_j$ and $\sum_{j=1}^{94}e_j$, thus the positerior is Gamma(277,294681).
+```{r}
+sum(y);sum(e)
+```
+
+We check this approach by assessing the *posterior predictive distribuiton*. Let $y^*$ be the number of deaths with exposure $e$ in a future sample, and it follows Poisson($e\lambda$). The unconditional distribution of $y^*$, the posterior predictive density is given by:
+$$
+f(y^*_i|e_i,y) = \int f_P(y_i^*|e_i\lambda)g(\lambda|y)d\lambda
+$$
+where $f_P(y_i^*|\lambda)$ is the Poisson sampling density with mean $\lambda$. The posterior predictive density is the likelihood of future observations based on the fitted model. 
+Comparing the estimated density with the true data, we can say about the "goodness" of the model.
+
+To test the use of the method, we consider hospital 94, whose #death = 17. First, we generate the samples for $\lambda$ by the posterior density $g(\lambda|y)$.
+```{r}
+lambda = rgamma(1000, shape = 277, rate = 294681)
+```
+Thenm the simulate draws $y_{94}^*$ can be obtained by
+```{r}
+ys94 = rpois(1000, e[94]*lambda)
+```
+The following figure shows the histogram of  $y_{94}^*$ with the actual number of deaths $y_{94}$.
+```{r}
+hist(ys94,breaks = seq(.5,max(ys94)+.5))
+lines(c(y[94],y[94]),c(0,120),lwd=3)
+```
+We observe that the simulated samples are placed left of the actual number, thus this model is inconsitent: the hospital 94 has a higher mortality rate than the suggested model.
+
+We can check the consistency for all data $y_i$ with its posterior predictive density. For each distribution, the future observation $y_i^*$ is at least as extreme as $y_i$:
+$$
+\min\{P(y_i^*\leq y_i),P(y_i^*\geq y_i)\}
+$$
+The following code computes the value for each hospital.
+```{r}
+lambda = rgamma(1000, shape = 277, rate = 294681)
+prob.out = function(i){
+  ysi = rpois(1000, e[i]*lambda)
+  pleft = sum(ysi<=y[i])/1000
+  pright = sum(ysi>=y[i])/1000
+  return(min(pleft,pright))
+}
+pout = sapply(1:94,prob.out)
+```
+The probability vs the log exposures is as follows.
+```{r}
+plot(log(e), pout, ylab = "P(extreme)")
+```
+We see that a munber of tail probs seem small (15 are below .1). Hence this equal-rates model is inadaquete for this case. 
+
+## 7.5 Modeling a Prior Belief of Exchangeability
+First stage: the true death rates $\lambda_1,..,\lambda_{94}$ are assumed to be a random sample from a gamma$(\alpha,\alpha/\mu)$ distribution:
+$$
+g(\lambda|\alpha,\mu) = \frac{(\alpha/\mu)^\alpha \lambda^{\alpha-1}\exp(-\alpha\lambda/\mu)}{\Gamma(\alpha)},\lambda>0
+$$
+where the mean and variance are $\mu$ and $\mu^2\alpha$.  
+Second Stage: the hyperparams $\alpha,\mu$ are assumed independent, with $\alpha \sim g(\alpha)$ and $\mu \sim$ inverse gamma$(a,b)$ with density of $\mu^{-a-1}\exp(-b/\mu)$.
+
+The prior distribution induces positive correlarion between the true death rates. To illustrate this, we consider the prior for two particular rates $\lambda_1,\lambda_2$. 
+We here fix $\alpha$ to $\alpha_0$. We can integrate out $\mu$ from the prior by:
+$$
+g(\lambda_1,\lambda_2|\alpha_0) = \int g(\lambda_1|\alpha_0,\mu) g(\lambda_2|\alpha_0,\mu) g(\mu) d\mu\\
+\propto \int \frac{(\alpha_0/\mu)^{\alpha_0} \lambda_1^{\alpha_0-1}\exp(-\alpha_0\lambda_1/\mu)}{\Gamma(\alpha_0)}\frac{(\alpha_0/\mu)^{\alpha_0} \lambda_2^{\alpha_0-1}\exp(-\alpha_0\lambda_2/\mu)}{\Gamma(\alpha_0)} \mu^{-a-1}\exp(-b/\mu) d\mu\\
+\propto (\lambda_1\lambda_2)^{\alpha_0-1}\int \left(\frac{1}{\mu}\right)^{(2\alpha_0+a)+1} \exp\left(-\frac{\alpha_0(\lambda_1+\lambda_2)+b}{\mu}\right)d\mu\\
+\propto (\lambda_1\lambda_2)^{\alpha_0-1}\frac{1}{(\alpha_0(\lambda_1+\lambda_2)+b)^{2\alpha_0+a}} \ \ \  \text{(*from the invese gamma PDF)}
+$$
+We computes the log prior by the following function
+```{r}
+pgexchprior = function(lambda,pars){
+  # lambda: true rates
+  # pars: set of params
+  alpha = pars[1]; a = pars[2]; b = pars[3]
+  val = (alpha-1)*log(prod(lambda)) - (2*alpha+a)*log(alpha*sum(lambda)+b)
+  return(val)
+}
+```
+We assign invese gamma(10,10) for $\mu$.  We here see the contour plots of the joint density $(\lambda_1,\lambda_2)$ for the value of $\alpha_0 = 5,20,80,400$.
+```{r}
+alpha = c(5,20,80,400); par(mfrow=c(2,2))
+for (j in 1:4) {
+  mycontour(pgexchprior,c(.001,5,.001,5),c(alpha[j],10,10),
+            main=paste("ALPHA = ",alpha[j]), xlab = "LAMBDA 1", ylab = "LAMBDA 2")
+}
+```
+
