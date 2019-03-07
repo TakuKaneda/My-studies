@@ -190,3 +190,149 @@ for (j in 1:4) {
 }
 ```
 
+Here we used subjective priors, in practice vague distributions can be chosen for the hyperparameters $\mu,\alpha$. In this example, we assign:
+$$
+g(\mu)\propto \frac{1}{\mu},\mu > 0\\
+g(\alpha) = \frac{z_0}{(\alpha+z_0)^2},\alpha > 0
+$$
+where $z_0$ is a median, we set 0.53.
+
+
+## 7.6 Posterior Distribution
+Here we assume that we use the conjugate prior, the marginal posterior of the hyperparameters can be expressed as follows (Gamma-Poisson Model)
+$$
+g(\alpha,\mu|y) \propto g(\alpha,\mu)g(y|\alpha,\mu)
+$$
+the likelihood function $g(y|\alpha,\mu)$ is given by:
+$$
+g(y|\alpha,\mu) = \int g(\lambda|\alpha,\mu) g(y|\lambda)d\lambda\\
+= \int \frac{(\alpha/\mu)^\alpha \lambda^{\alpha-1}\exp(-\alpha\lambda/\mu)}{\Gamma(\alpha)} \frac{(e\lambda)^{y}}{y!}\exp(-e\lambda) d\lambda\\
+\propto \frac{(\alpha/\mu)^\alpha}{\Gamma(\alpha)} \int \lambda^{\alpha+y-1}\exp(-(e+\frac{\alpha}{\mu})\lambda) d\lambda\\
+= \frac{(\alpha/\mu)^\alpha}{\Gamma(\alpha)} \frac{\Gamma(\alpha+ y)}{(\alpha/\mu + e)^{\alpha+y}}
+$$
+Note that we assume that $g(y|\lambda)$ is Poisson$(e\lambda)$. Therefore, the marginal posterior is 
+$$
+g(\alpha,\mu|y) \propto g(\alpha,\mu)g(y|\alpha,\mu) \\
+\propto \frac{1}{\mu}\frac{z_0}{(\alpha+z_0)^2} \prod_{i=1}^{94}g(y_i|\alpha,\mu)\\
+\propto \frac{1}{\mu}\frac{z_0}{(\alpha+z_0)^2} \prod_{i=1}^{94}\frac{(\alpha/\mu)^\alpha}{\Gamma(\alpha)} \frac{\Gamma(\alpha+ y_i)}{(\alpha/\mu + e_i)^{\alpha+y_i}}\\
+$$
+
+Moreover, the posterior of $\lambda_i$ given the hyperparameters follows gamma$(y_i+\alpha,e_i+\alpha/\mu)$, i.e.
+$$
+\lambda_i | \alpha, \mu, y_i \sim \text{gamma}(y_i+\alpha,e_i+\alpha/\mu)
+$$
+The mean is given by: 
+$$
+E(\lambda_i | \alpha, \mu, y_i ) = \frac{y_i+\alpha}{e_i+\alpha/\mu} = (1-B_i)\frac{y_i}{e_i}+B_i\mu\\
+\text{where }B_i = \frac{\alpha}{\alpha+e_i\mu}
+$$
+
+## 7.7 Simulating from the Posterior
+We here want to simulate the **all paramterer (including hyper)** from the posterior distribution, namely $g(\lambda,\alpha,\mu|y)$. However we instead consider the function as:
+$$
+g(\lambda,\alpha,\mu|y) \propto g(\lambda|\alpha,\mu,y) g(\alpha,\mu|y)
+$$
+and follow the following procedure.  
+- simulate $(\alpha,\mu)$ from the marignal posterior $g(\alpha,\mu|y)$
+- simulate $\lambda_i$ from the posteriror distribution conditional on $(\alpha,\mu)$, i.e. $g(\lambda_i|\alpha,\mu,y_i)$.
+
+As usual, we first *transform the parameters to be real valued*. Hence, 
+$$
+\theta_1 = \log(\alpha),\theta_2 = \log(\mu)
+$$
+Then, the marginal posterior of the transformed params is:
+$$
+p(\theta_1,\theta_2|y) = g(\alpha,\mu|y) |J|
+= g(\alpha,\mu|y) e^{\theta_1}e^{\theta_2} = g(\alpha,\mu|y) \alpha\mu\\
+= \frac{\alpha z_0}{(\alpha+z_0)^2}\prod_{i=1}^{94}\frac{(\alpha/\mu)^\alpha}{\Gamma(\alpha)} \frac{\Gamma(\alpha+ y_i)}{(\alpha/\mu + e_i)^{\alpha+y_i}}
+$$
+where $|J|$ is the Jacobian.
+
+```{r}
+poissgamexch = function(theta, datapar){
+  # retrieve data
+  y = datapar$data[,2];e = datapar$data[,1];z0 = datapar$z0
+  # # hyperparams
+  alpha = exp(theta[1]); mu = exp(theta[2]); beta = alpha/mu
+  logf = function(y,e,alpha,beta){
+    lgamma(alpha+y) - lgamma(alpha)+
+      alpha*log(beta) - (alpha+y)*log(beta+e)
+  }
+  val = sum(logf(y,e,alpha,beta))
+  val = val + log(alpha) - 2*log(alpha+z0) + log(z0)
+  return(val)
+}
+```
+
+Here we find the 'best' paramters by the fucntion `laplace`.
+```{r}
+datapar = list(data = hearttransplants, z0 = 0.53)
+start = c(2,-7)
+fit = laplace(poissgamexch, start, datapar)
+fit
+```
+
+We see that the mode of $(\theta_1,\theta_2)$ is around (2,-7). We see the countour of the post density.
+```{r}
+mycontour(poissgamexch, c(0, 8, -7.3, -6.6), datapar,
+          xlab = "log alpha", ylab = "log mu")
+```
+
+We obtain a simulated sample of $(\theta_1,\theta_2)$ by Gibbs sampling with fixed scale params $c_1=1,c_2=.15$. The acceptance rate is about .5.s
+```{r}
+start = c(4, -7)
+fitgibbs = gibbs(poissgamexch, start, 1000, c(1,.15),datapar)
+fitgibbs$accept
+```
+We plot the simulated points.
+```{r}
+mycontour(poissgamexch, c(0, 8, -7.3, -6.6), datapar,
+          xlab = "log alpha", ylab = "log mu")
+points(fitgibbs$par[,1],fitgibbs$par[,2])
+```
+
+The kernel density estimate of the precision parameter $\theta_1 = \log (\alpha)$ is given by
+```{r}
+plot(density(fitgibbs$par[,1], bw = .2), main = "log alpha")
+```
+
+As discussed earlier, the true mortality rates $\lambda_i$ given a hyperparameter $\alpha,\mu$ follows a gamma$(y_i+\alpha,e_i+\alpha/\mu)$. We here consider  $\lambda_1$.
+```{r}
+alpha = exp(fitgibbs$par[,1]); mu = exp(fitgibbs$par[,2])
+lam1 = rgamma(1000, y[1]+alpha, e[1]+ alpha/mu)
+```
+
+Here we see the true data of $\log(e)$ vs $y/e$ and the 90% probability interval of the simulation for each data.
+```{r}
+plot(log(e), y/e, pch = as.character(y))
+for (i in 1:94){
+  lami = rgamma(1000, y[i]+alpha, e[i]+ alpha/mu)
+  probint = quantile(lami, c(.05,.95))
+  lines(log(e[i])* c(1,1), probint)
+}
+```
+
+
+## 7.8 Posterior Inferences
+Once we have obtained the rates $\lambda_i$ and the hyperparameters $\alpha, \mu$, we can use them to perform various types of inferences.
+### 7.8.1 Shrinkage
+The posterior mean of the true mortality rate can be approximated by:
+$$
+E(\lambda_i|data) \approx (1-E(B_i|data))\frac{y_i}{e_i} + E(B_i|data) \frac{\sum_{j=1}^{94}y_j}{\sum_{j=1}^{94}e_j}
+$$
+where $B_i = \alpha/(\alpha+e_i\mu)$ is the size of the shrinkage. We compute the all 94 shrinkage in the following:
+```{r}
+shrink = function(i) mean(alpha/(alpha + e[i] * mu))
+shrinkage = sapply(1:94, shrink)
+plot(log(e), shrinkage)
+```
+
+### 7.8.2 Comparing Hospitals
+We find the best hospital: with the smallest estimated mortality rate. 
+```{r}
+mrate = function(i) mean(rgamma(1000, y[i] + alpha, e[i] + alpha/mu))
+hospital = 1:94
+meanrate = sapply(hospital, mrate)
+hospital[meanrate == min(meanrate)]
+```
+
