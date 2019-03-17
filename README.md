@@ -1,5 +1,5 @@
 # My-studies
-Note for my studies.
+Notebooks for my studies.
 
 ## Bayesian Computation with R
 `R` Notebook of Bayesian Computation with R by Jim Albert.
