@@ -8,3 +8,5 @@ Notebooks for my studies.
 ## TensorFlow
 Implement TensorFlow with low level API.
 
+## 実践 Terraform AWSニオ消すシステム設計とベストプラクティス
+
