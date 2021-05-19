@@ -1,5 +1,11 @@
 # メモ
 
+Sample code
+
+- https://github.com/govargo/kubecontorller-book-sample-snippet
+- https://github.com/govargo/sample-controller-kubebuilder
+- https://github.com/govargo/sample-controller-operatorsdk
+
 ## 第1章
 
 - api-server
