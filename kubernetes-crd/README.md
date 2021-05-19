@@ -14,3 +14,12 @@ kubernetes はなぜ宣言的か？
 ### 1.2 Kubernetes の拡張機能
 
 Custom Resource Definition (CRD): 独自の Resource を定義
+
+3つの手法(自由度昇順)
+
+1. Admission Webhook: API request を変更・検証する
+   - Mutating Admission Webhook/Validation Admission Webhook
+   - Pod の Default 値などはこれで実装
+2. CRD: 独自のResourcesを定義
+3. API Aggregation: 追加のAPIを実装
+   - custom api-server を作る
