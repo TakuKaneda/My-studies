@@ -96,3 +96,21 @@ Custom Resource Definition (CRD): 独自の Resource を定義
 >
 > - controller: CR の管理を行い、control loop を実行する
 > - operator: CRD と CC のセット
+
+## 第2章 client-go と周辺知識
+
+- Kind: API Object の種類
+  - Kind: Pod
+- Resource: Kind と同じ意味で利用
+  - pods, services
+- Object: API Object の実態
+
+- `client-go`
+  - k8s のクライアントライブラリ
+  - master (api-server) へのアクセスに利用
+- `apimachinery`
+  - API Object, API kile Obj 用の機能を備えたライブラリ
+
+> `client-go` のバージョンに注意
+
+
