@@ -42,7 +42,7 @@ Custom Resource Definition (CRD): 独自の Resource を定義
   - Kubebuilder などを使う場合は yaml が自動生成される
 - Additional Printer Columns
   - kubectl で Object を取得した際に、ターミナルに任意の値を出せる
-  - `k get CR` で出せる
+  - `k get <CR_NAME>` で出せる
 - SubResource
   - Resource にエンドポイントを実装
     - Pod では `/api/v1/namespace/<NS>/pods/<name>`
@@ -57,4 +57,42 @@ Custom Resource Definition (CRD): 独自の Resource を定義
   - 構造化された CRD format
   - OpenAPI v3.0 validation schema に則った format
   - controller-tools を使って自動生成するので、意識することは少ない
-  - 
+- Pruning
+  - CR のマニフェストに定義されていない spec フィールドを破棄
+  - CRD が structural schema である前提
+  - client & server で validation → etcd に保存されない
+- Defaulting
+  - CR のマニフェストの spec にデフォルト値
+  - structural schema & pruning が必要
+- Conversion
+  - Version の異なる CRD の互換
+  - v1beta <-> v1alpha <-> v1
+
+### 1.6 Controller と CRD を自作するために必要なもの
+
+複数手法ガルが、代表的なものは以下
+
+1. Kubernetes Way (client-go + code-generator)
+2. Kubebuilder
+3. Operator SDK
+
+- kubernetes way (client-go + code-generator)
+  - 伝統的
+    - 既存の実装方法
+  - Sample Controller
+    - CC を作る際にはじめに参考にすべき
+    - これもそのライブラリで実装
+  - 覚えること多く難しい
+- kubebuilder
+  - operator 用のフレームワーク
+  - ロジックだけに集中できる
+  - kubebuilder だけで controller, operator などの一式が揃う
+- Operator SDK
+  - Operator Framework の一種
+  - kubebuilder と同様の機能
+
+> controller と operator の違いとは？\
+> それぞれの明確な定義無し！ただし、以下の違い
+>
+> - controller: CR の管理を行い、control loop を実行する
+> - operator: CRD と CC のセット
