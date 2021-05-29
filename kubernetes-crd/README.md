@@ -113,4 +113,21 @@ Custom Resource Definition (CRD): 独自の Resource を定義
 
 > `client-go` のバージョンに注意
 
+Run sample code
+
+- `clientset`: k8s の resource に対する client の集合体
+  - standard resource にはアクセス可能だが
+  - CR には不可
+- `code-generator`: CR にアクセスするため
+
+覚えておくべき components
+
+- Informer: Object の監視と in-cache-memory にデータ格納
+  - Watch api で added, modified などの event を監視
+  - 毎回アクセスではなく、cache を利用
+- Listener: in-cache-memory からデータ取得
+- Workqueue: Controller が処理するアイテムを登録するキュー
+- runtime.Object: 全 API Object 共通の Interface
+- Scheme: Kubernetes API と Go Types の架け橋
+
 

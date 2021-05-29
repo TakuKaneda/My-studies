@@ -19,17 +19,18 @@ func main() {
 	}
 
 	// set kubeconfig flag
-	kubeconfig := flag.String("kubeconfig", defaultKubeConfigPath, "kubeconfig config file")
+	kubeConfig := flag.String("kubeconfig", defaultKubeConfigPath, "kubeconfig config file")
 	flag.Parse()
 
 	// retrieve kubeconfig
-	config, _ := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	config, _ := clientcmd.BuildConfigFromFlags("", *kubeConfig)
 
 	// get clientset for kubernetes resources
 	clientset, _ := kubernetes.NewForConfig(config)
 
 	// Get list of pod objects
 	pods, _ := clientset.CoreV1().Pods("").List(metav1.ListOptions{})
+	// To get pods in 'default' NS: clientset.CoreV1().Pods("default").List(metav1.ListOptions{})
 
 	// show pod object to stdout
 	for i, pod := range pods.Items {
