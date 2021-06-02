@@ -166,3 +166,43 @@ metadata:      # ObjectMeta
 Scheme
 
 - k8s API の GVK と Go Types をひもづける
+
+## 第3章 Sample Controller
+
+Sample Controller: Kubernetes way で実装された Controller
+
+これは何をする？
+
+- https://github.com/kubernetes/sample-controller/tree/release-1.17
+- Deployment の上位 Resources である Foo を管理する Controller
+- Foo Controller
+  - Nginx image の任意のレプリカ数の Deployment を管理する
+  - ReplicaSet と Pod のように、Foo と Deployment の関係があるとする
+
+Directory 構成
+
+- お手本のような構成
+- ただし、あくまでもサンプルとする
+- 実装順番
+  - CRD と CR の定義
+  - types.go, register.go, doc.go により Go Type を定義
+  - code-generator で自動生成
+  - controller.go を編集
+  - main.go を編集
+
+Sample Controller の CRD
+
+- https://github.com/kubernetes/sample-controller/blob/release-1.17/artifacts/examples/crd.yaml
+- Validation や SubResource のサンプルも有り
+
+`controller.go`
+
+- NewController で Instance 化
+- EventHandler を追加
+  - WorkQueue にアイテム追加
+- runWorker
+  - processNextWorkItem を無限ループ
+- processNextWorkItem
+  - WorkQueue のアイテムを取り出し、syncHandler (Reconcile) を呼び出す
+- syncHandler
+  - 実際の Reconcile を実行
