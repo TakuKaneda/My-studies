@@ -130,4 +130,39 @@ Run sample code
 - runtime.Object: 全 API Object 共通の Interface
 - Scheme: Kubernetes API と Go Types の架け橋
 
+WorkQueue
 
+- DeltaFIFO とは別のもう一つの Queue
+- Event 発生時に DeltaFIFO から pop したアイテムがキューに追加
+- Reconciliation Loop のアイテムを貯めるのに利用
+- kubernetes way でやるなら必要
+
+runtime.Object
+
+- k8s の API Object は `runtime.Object` Interface を満たす必要あり
+  - GroupVersionKind (GVK)
+    - API Group, Version, Kind のセット
+    - ex) apps, v1, Deployment
+    - RESTMapper: GroupVersionKind -> GroupVersionResource
+  - Deep copy
+    - in-cache-memory のデータを copy して利用
+
+TypeMeta/ObjectMeta
+
+- TypeMeta
+  - Kind/APIVersion を持つ struct
+- ObjectMeta
+  - Name, Namespace, label などを持つ struct
+
+```yaml
+apiVersion: v1 # TypeMeta
+kind: Pod      # TypeMeta
+metadata:      # ObjectMeta
+  name: nginx  # ObjectMeta
+  labels:      # ObjectMeta
+    run: nginx # ObjectMeta
+```
+
+Scheme
+
+- k8s API の GVK と Go Types をひもづける
