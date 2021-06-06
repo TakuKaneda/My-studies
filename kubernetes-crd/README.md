@@ -206,3 +206,57 @@ Sample Controller の CRD
   - WorkQueue のアイテムを取り出し、syncHandler (Reconcile) を呼び出す
 - syncHandler
   - 実際の Reconcile を実行
+
+## 第4章 controller-runtime, controller-tools
+
+Operator 用の SDK。
+
+https://github.com/kubernetes-sigs/kubebuilder/tree/v2.2.0/docs/book/src
+
+- controller-tools
+  - 内部に controller-gen というコマンド
+    - 諸々を作成
+  - manifesto file は controller-gen が自動生成
+    - マーカーで判断
+    - https://github.com/kubernetes-sigs/kubebuilder/blob/0824a139f59e109c9e418a0b6e71a53c6e9e144f/docs/book/src/cronjob-tutorial/testdata/project/api/v1/cronjob_types.go#L158-L170
+    - これに合わせたマニフェストを作成
+  - controller-gen Markers
+    - https://book.kubebuilder.io/reference/markers.html
+    - CronJob の例
+      - API Object には  `+kubebuilder:object:root=true`
+      - Status SubResource 有効化 `+kubebuilder:subresource:status`
+      - `+kubebuilder:validation:Minimum=0`: min=0 の validation
+      - `+optional`: optional
+    - RBAC
+      - RBAC(ClusterRole と ClusterRoleBinding) のマニフェストが自動生成
+      - 1行以上の空白行が必要
+  - controller-gen
+    - Kubebuilder の Makefile でマニフェストは自動生成
+      - `make generate`
+      - `make manifests`
+- controller-runtime
+  - 第3章でやった Controller 開発は Scheme, ClientSet などを自作したが
+  - controller-runtime を利用すればそこを意識して実装する必要がなくなる
+  - Controller Manager
+    - controller manager が1つ以上の custom controller を管理
+      - Metrics: WorkQueue などの Go のメトリクスを標準で取得
+      - Leader Election: 復数の Operator から Leader を選出
+        - 一つのPodがLeaderでほかがstandby
+
+Kubebuilder ではm Kubebuilder Project を作成し、 API Object を追加すると、Reconcile 関数のテンプレートを作ってくれるので、ここの開発に集中すればよい
+
+### 特に覚えておくこと
+
+- controller-tools: マーカー(Type, Validation, RBAC)
+- controller-runtime: Manager, Reconcile
+
+## 第5章 Kubebuilder で Sample Controller を実装
+
+Go, Kubebuilder の環境構築から、Controller を作成するまでのチュートリアル
+
+1. Kubebuilder PROJECT の初期化
+2. Kubebuilder で API Object と Controller のテンプレート作成
+3. types.go を編集して API Object を定義
+4. controller.go を編集して Reconcile を実装
+5. main.go を編集
+6. Operator を実際に動かす
